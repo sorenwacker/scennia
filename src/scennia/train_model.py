@@ -52,7 +52,7 @@ class CellDataModule(L.LightningDataModule):
             ]
         )
 
-    def setup(self, stage=None):
+    def setup(self, stage=None):  # noqa: ARG002
         # Only setup once to avoid multiple calls
         if self._setup_done:
             return
