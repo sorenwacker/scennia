@@ -1,0 +1,14 @@
+# Changes here will be overwritten by Copier
+_commit: v0.2.19
+_src_path: git+https://gitlab.ewi.tudelft.nl/reit/python-package-template
+email: s.wacker@tudelft.nl
+environment_manager: uv
+full_name: Soren Wacker
+host: gitlab.ewi.tudelft.nl
+license: No license (others may not use, share or modify the code)
+min_python_version: '3.11'
+org: sdrwacker
+project_name: scennia
+project_short_description: Code for SCENNIA project.
+python_name: scennia
+url: https://gitlab.ewi.tudelft.nl/reit/scennia
