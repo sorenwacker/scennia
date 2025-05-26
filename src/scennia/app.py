@@ -419,7 +419,7 @@ def display_model_status(_):
         return dbc.Alert(
             [
                 html.Strong("Classification Model Loaded: "),
-                f"{model_manager.model_metadata.get('model_name', 'Unknown')} with {model_manager.model_metadata.get('num_classes', 0)} classes",
+                f"{model_manager.model_metadata.get('model_name', 'Unknown')} with {model_manager.model_metadata.get('num_classes', 0)} classes",  # noqa: E501
                 html.Br(),
                 html.Small(f"Classes: {', '.join(model_manager.model_metadata.get('class_names', []))}"),
             ],
