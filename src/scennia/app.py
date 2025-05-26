@@ -28,10 +28,124 @@ CROPPED_CACHE_DIR = os.path.join(CACHE_DIR, "cropped")
 os.makedirs(CACHE_DIR, exist_ok=True)
 os.makedirs(CROPPED_CACHE_DIR, exist_ok=True)
 
-# Global variables for classification model
-classification_model = None
-model_metadata = None
-transform_for_classification = None
+
+class ModelManager:
+    """Manages ONNX model loading and classification without global variables"""
+
+    def __init__(self):
+        self.classification_model = None
+        self.model_metadata = None
+        self.transform_for_classification = None
+
+    def load_model(self, model_path):
+        """Load ONNX classification model and metadata"""
+        try:
+            # Load ONNX model
+            self.classification_model = ort.InferenceSession(model_path)
+            print(f"Loaded classification model from {model_path}")
+
+            # Load metadata
+            metadata_path = os.path.join(os.path.dirname(model_path), "metadata.json")
+            if os.path.exists(metadata_path):
+                with open(metadata_path) as f:
+                    self.model_metadata = json.load(f)
+                print(f"Loaded model metadata: {self.model_metadata['num_classes']} classes")
+                print(f"Classes: {self.model_metadata['class_names']}")
+            else:
+                print("Warning: No metadata file found")
+                self.model_metadata = None
+
+            # Setup transforms for classification
+            img_size = self.model_metadata.get("img_size", 224) if self.model_metadata else 224
+            mean = (
+                self.model_metadata.get("normalization", {}).get("mean", [0.485, 0.456, 0.406])
+                if self.model_metadata
+                else [0.485, 0.456, 0.406]
+            )
+            std = (
+                self.model_metadata.get("normalization", {}).get("std", [0.229, 0.224, 0.225])
+                if self.model_metadata
+                else [0.229, 0.224, 0.225]
+            )
+
+            self.transform_for_classification = transforms.Compose(
+                [
+                    transforms.Resize((img_size, img_size)),
+                    transforms.ToTensor(),
+                    transforms.Normalize(mean=mean, std=std),
+                ]
+            )
+
+            return True
+
+        except Exception as e:
+            print(f"Error loading classification model: {e}")
+            return False
+
+    def classify_cell_crop(self, cell_crop_pil):
+        """Classify a cell crop using the loaded ONNX model"""
+        if self.classification_model is None or self.transform_for_classification is None:
+            return {"error": "Classification model not loaded"}
+
+        try:
+            # Ensure image is RGB
+            if cell_crop_pil.mode != "RGB":
+                cell_crop_pil = cell_crop_pil.convert("RGB")
+
+            # Apply transforms
+            input_tensor = self.transform_for_classification(cell_crop_pil).unsqueeze(0).numpy()
+
+            # Run inference
+            inputs = {self.classification_model.get_inputs()[0].name: input_tensor}
+            outputs = self.classification_model.run(None, inputs)
+            predictions = outputs[0][0]  # Get first batch item
+
+            # Get predicted class and confidence
+            predicted_class_idx = np.argmax(predictions)
+            confidence = float(np.max(predictions))
+
+            # Get class name if metadata available - Combined if statement (fixes SIM102)
+            class_name = "Unknown"
+            if (
+                self.model_metadata
+                and "class_names" in self.model_metadata
+                and predicted_class_idx < len(self.model_metadata["class_names"])
+            ):
+                class_name = self.model_metadata["class_names"][predicted_class_idx]
+
+            # Parse treatment and concentration from class name
+            treatment_type = "unknown"
+            concentration = 0
+
+            if "_" in class_name:
+                parts = class_name.split("_")
+                if len(parts) >= 2:
+                    treatment_type = parts[0]
+                    try:
+                        concentration = int(parts[1])
+                    except ValueError:
+                        concentration = 0
+
+            return {
+                "predicted_class": class_name,
+                "predicted_class_idx": int(predicted_class_idx),
+                "confidence": confidence,
+                "treatment_type": treatment_type,
+                "concentration": concentration,
+                "all_predictions": predictions.tolist(),
+            }
+
+        except Exception as e:
+            print(f"Error in cell classification: {e}")
+            return {"error": str(e)}
+
+    def is_loaded(self):
+        """Check if model is loaded and ready"""
+        return self.classification_model is not None and self.transform_for_classification is not None
+
+
+# Create global instance to replace global variables
+model_manager = ModelManager()
 
 
 def get_concentration_color(concentration):
@@ -63,103 +177,12 @@ def get_concentration_color_plotly(concentration):
 
 def load_classification_model(model_path):
     """Load ONNX classification model and metadata"""
-    global classification_model, model_metadata, transform_for_classification
-
-    try:
-        # Load ONNX model
-        classification_model = ort.InferenceSession(model_path)
-        print(f"Loaded classification model from {model_path}")
-
-        # Load metadata
-        metadata_path = os.path.join(os.path.dirname(model_path), "metadata.json")
-        if os.path.exists(metadata_path):
-            with open(metadata_path) as f:
-                model_metadata = json.load(f)
-            print(f"Loaded model metadata: {model_metadata['num_classes']} classes")
-            print(f"Classes: {model_metadata['class_names']}")
-        else:
-            print("Warning: No metadata file found")
-            model_metadata = None
-
-        # Setup transforms for classification
-        img_size = model_metadata.get("img_size", 224) if model_metadata else 224
-        mean = (
-            model_metadata.get("normalization", {}).get("mean", [0.485, 0.456, 0.406])
-            if model_metadata
-            else [0.485, 0.456, 0.406]
-        )
-        std = (
-            model_metadata.get("normalization", {}).get("std", [0.229, 0.224, 0.225])
-            if model_metadata
-            else [0.229, 0.224, 0.225]
-        )
-
-        transform_for_classification = transforms.Compose(
-            [transforms.Resize((img_size, img_size)), transforms.ToTensor(), transforms.Normalize(mean=mean, std=std)]
-        )
-
-        return True
-
-    except Exception as e:
-        print(f"Error loading classification model: {e}")
-        return False
+    return model_manager.load_model(model_path)
 
 
 def classify_cell_crop(cell_crop_pil):
     """Classify a cell crop using the loaded ONNX model"""
-    global classification_model, model_metadata, transform_for_classification
-
-    if classification_model is None or transform_for_classification is None:
-        return {"error": "Classification model not loaded"}
-
-    try:
-        # Ensure image is RGB
-        if cell_crop_pil.mode != "RGB":
-            cell_crop_pil = cell_crop_pil.convert("RGB")
-
-        # Apply transforms
-        input_tensor = transform_for_classification(cell_crop_pil).unsqueeze(0).numpy()
-
-        # Run inference
-        inputs = {classification_model.get_inputs()[0].name: input_tensor}
-        outputs = classification_model.run(None, inputs)
-        predictions = outputs[0][0]  # Get first batch item
-
-        # Get predicted class and confidence
-        predicted_class_idx = np.argmax(predictions)
-        confidence = float(np.max(predictions))
-
-        # Get class name if metadata available
-        class_name = "Unknown"
-        if model_metadata and "class_names" in model_metadata:
-            if predicted_class_idx < len(model_metadata["class_names"]):
-                class_name = model_metadata["class_names"][predicted_class_idx]
-
-        # Parse treatment and concentration from class name
-        treatment_type = "unknown"
-        concentration = 0
-
-        if "_" in class_name:
-            parts = class_name.split("_")
-            if len(parts) >= 2:
-                treatment_type = parts[0]
-                try:
-                    concentration = int(parts[1])
-                except ValueError:
-                    concentration = 0
-
-        return {
-            "predicted_class": class_name,
-            "predicted_class_idx": int(predicted_class_idx),
-            "confidence": confidence,
-            "treatment_type": treatment_type,
-            "concentration": concentration,
-            "all_predictions": predictions.tolist(),
-        }
-
-    except Exception as e:
-        print(f"Error in cell classification: {e}")
-        return {"error": str(e)}
+    return model_manager.classify_cell_crop(cell_crop_pil)
 
 
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP], suppress_callback_exceptions=True)
@@ -392,13 +415,13 @@ app.layout = html.Div(
     Input("upload-image", "id"),  # Trigger on app load by using a static component ID
 )
 def display_model_status(_):
-    if classification_model is not None and model_metadata is not None:
+    if model_manager.is_loaded() and model_manager.model_metadata is not None:
         return dbc.Alert(
             [
                 html.Strong("Classification Model Loaded: "),
-                f"{model_metadata.get('model_name', 'Unknown')} with {model_metadata.get('num_classes', 0)} classes",
+                f"{model_manager.model_metadata.get('model_name', 'Unknown')} with {model_manager.model_metadata.get('num_classes', 0)} classes",
                 html.Br(),
-                html.Small(f"Classes: {', '.join(model_metadata.get('class_names', []))}"),
+                html.Small(f"Classes: {', '.join(model_manager.model_metadata.get('class_names', []))}"),
             ],
             color="success",
             className="mb-2",
@@ -456,8 +479,7 @@ def get_from_cache(img_hash):
     if os.path.exists(cache_file):
         try:
             with open(cache_file) as f:
-                cache_data = json.load(f)
-            return cache_data
+                return json.load(f)
         except Exception as e:
             print(f"Error reading from cache: {e!s}")
     return None
@@ -478,16 +500,15 @@ def save_to_cache(img_hash, cell_data, encoded_image, mask_data, predicted_prope
         with open(cache_file, "w") as f:
             json.dump(cache_data, f)
 
-        # Save cropped images separately
+        # Save cropped images separately - Fixed loop variable overwriting (PLW2901)
         if cropped_images:
             for cell_id, img_data in cropped_images.items():
                 crop_file = os.path.join(CROPPED_CACHE_DIR, f"{img_hash}_{cell_id}.png")
                 # Save as PNG file
                 with open(crop_file, "wb") as f:
-                    # Remove data URL prefix if present
-                    if "," in img_data:
-                        img_data = img_data.split(",", 1)[1]
-                    f.write(base64.b64decode(img_data))
+                    # Remove data URL prefix if present - Fixed variable overwriting
+                    processed_data = img_data.split(",", 1)[1] if "," in img_data else img_data
+                    f.write(base64.b64decode(processed_data))
 
         return True
     except Exception as e:
@@ -526,18 +547,18 @@ def create_complete_figure(encoded_image, cell_data=None, mask_data=None, show_a
 
         # Add the original image as the base layer
         fig.add_layout_image(
-            dict(
-                source=encoded_image,
-                xref="x",
-                yref="y",
-                x=0,
-                y=0,
-                sizex=width,
-                sizey=height,
-                sizing="stretch",  # Use stretch for pixel-perfect mapping
-                opacity=1,
-                layer="below",
-            )
+            {
+                "source": encoded_image,
+                "xref": "x",
+                "yref": "y",
+                "x": 0,
+                "y": 0,
+                "sizex": width,
+                "sizey": height,
+                "sizing": "stretch",  # Use stretch for pixel-perfect mapping
+                "opacity": 1,
+                "layer": "below",
+            }
         )
 
         # Add cell overlays if data exists
@@ -551,7 +572,7 @@ def create_complete_figure(encoded_image, cell_data=None, mask_data=None, show_a
                         x=boundary_x,
                         y=boundary_y,
                         mode="markers",
-                        marker=dict(color="white", size=1),
+                        marker={"color": "white", "size": 1},
                         hoverinfo="none",
                         showlegend=False,
                         visible=show_annotations,
@@ -591,13 +612,13 @@ def create_complete_figure(encoded_image, cell_data=None, mask_data=None, show_a
                         x=[cell["centroid_x"]],
                         y=[cell["centroid_y"]],
                         mode="markers",
-                        marker=dict(
-                            size=max(20, np.sqrt(cell["area"]) / 3),  # Larger markers for better visibility
-                            color=color,
-                            opacity=0.7,  # More visible
-                            line=dict(width=2, color="white"),  # Add white border
-                            symbol="circle",  # Clear circle shape
-                        ),
+                        marker={
+                            "size": max(20, np.sqrt(cell["area"]) / 3),  # Larger markers for better visibility
+                            "color": color,
+                            "opacity": 0.7,  # More visible
+                            "line": {"width": 2, "color": "white"},  # Add white border
+                            "symbol": "circle",  # Clear circle shape
+                        },
                         name=f"Cell {cell['id']}",
                         hoverinfo="text",
                         hovertext=hover_text,
@@ -622,7 +643,7 @@ def create_complete_figure(encoded_image, cell_data=None, mask_data=None, show_a
                         y=[cell["centroid_y"]],
                         mode="text",
                         text=annotation_text,
-                        textfont=dict(color="white", size=9, family="Arial Black"),
+                        textfont={"color": "white", "size": 9, "family": "Arial Black"},
                         hoverinfo="none",
                         showlegend=False,
                         visible=show_annotations,
@@ -633,27 +654,27 @@ def create_complete_figure(encoded_image, cell_data=None, mask_data=None, show_a
         fig.update_layout(
             autosize=True,
             height=600,
-            margin=dict(l=0, r=0, t=0, b=0),
+            margin={"l": 0, "r": 0, "t": 0, "b": 0},
             showlegend=False,
             plot_bgcolor="rgba(0,0,0,0)",
             paper_bgcolor="rgba(0,0,0,0)",
             clickmode="event",
             # Add helpful annotation
             annotations=[
-                dict(
-                    text="Click on any colored circle to view cell details",
-                    x=0.5,
-                    y=0.01,
-                    xref="paper",
-                    yref="paper",
-                    showarrow=False,
-                    font=dict(size=14),
-                    bgcolor="rgba(255,255,255,0.7)",
-                    bordercolor="gray",
-                    borderwidth=1,
-                    borderpad=4,
-                    visible=bool(cell_data and show_annotations),
-                )
+                {
+                    "text": "Click on any colored circle to view cell details",
+                    "x": 0.5,
+                    "y": 0.01,
+                    "xref": "paper",
+                    "yref": "paper",
+                    "showarrow": False,
+                    "font": {"size": 14},
+                    "bgcolor": "rgba(255,255,255,0.7)",
+                    "bordercolor": "gray",
+                    "borderwidth": 1,
+                    "borderpad": 4,
+                    "visible": bool(cell_data and show_annotations),
+                }
             ]
             if cell_data
             else [],
@@ -746,25 +767,25 @@ def display_uploaded_image(contents, filename):
 
         # Add the original image
         fig.add_layout_image(
-            dict(
-                source=encoded_image,
-                xref="x",
-                yref="y",
-                x=0,
-                y=0,
-                sizex=width,
-                sizey=height,
-                sizing="stretch",  # Use stretch for pixel-perfect mapping
-                opacity=1,
-                layer="below",
-            )
+            {
+                "source": encoded_image,
+                "xref": "x",
+                "yref": "y",
+                "x": 0,
+                "y": 0,
+                "sizex": width,
+                "sizey": height,
+                "sizing": "stretch",  # Use stretch for pixel-perfect mapping
+                "opacity": 1,
+                "layer": "below",
+            }
         )
 
         # Update layout
         fig.update_layout(
             autosize=True,
             height=600,
-            margin=dict(l=0, r=0, t=0, b=0),
+            margin={"l": 0, "r": 0, "t": 0, "b": 0},
             showlegend=False,
             plot_bgcolor="rgba(0,0,0,0)",
             paper_bgcolor="rgba(0,0,0,0)",
@@ -895,10 +916,7 @@ def process_image(n_clicks, encoded_image, img_hash, show_annotations):
                 for concentration in all_concentrations:
                     count = concentration_counts.get(concentration, 0)
                     # Determine class name for this concentration
-                    if concentration == 0:
-                        class_name = "control_00"
-                    else:
-                        class_name = f"lactate_{concentration:02d}"
+                    class_name = "control_00" if concentration == 0 else f"lactate_{concentration:02d}"
 
                     plot_data.append(
                         {
@@ -925,15 +943,15 @@ def process_image(n_clicks, encoded_image, img_hash, show_annotations):
                 # Update layout
                 fig_bar.update_layout(
                     height=300,
-                    margin=dict(l=20, r=20, t=40, b=20),
-                    font=dict(size=12),
+                    margin={"l": 20, "r": 20, "t": 40, "b": 20},
+                    font={"size": 12},
                     showlegend=False,  # Hide color legend since colors are self-explanatory
-                    xaxis=dict(
-                        tickmode="array",
-                        tickvals=all_concentrations,
-                        ticktext=[f"{c}" for c in all_concentrations],
-                        title="Concentration Level",
-                    ),
+                    xaxis={
+                        "tickmode": "array",
+                        "tickvals": all_concentrations,
+                        "ticktext": [f"{c}" for c in all_concentrations],
+                        "title": "Concentration Level",
+                    },
                 )
 
                 # Add concentration labels on hover
@@ -1040,7 +1058,7 @@ def process_image(n_clicks, encoded_image, img_hash, show_annotations):
 
             # Perform classification if model is available
             cell_prediction = {}
-            if classification_model is not None:
+            if model_manager.is_loaded():
                 try:
                     # Convert base64 to PIL Image for classification
                     crop_content_type, crop_content_string = cropped_img_b64.split(",")
@@ -1130,10 +1148,7 @@ def process_image(n_clicks, encoded_image, img_hash, show_annotations):
                 for concentration in all_concentrations:
                     count = concentration_counts.get(concentration, 0)
                     # Determine class name for this concentration
-                    if concentration == 0:
-                        class_name = "control_00"
-                    else:
-                        class_name = f"lactate_{concentration:02d}"
+                    class_name = "control_00" if concentration == 0 else f"lactate_{concentration:02d}"
 
                     plot_data.append(
                         {
@@ -1160,15 +1175,15 @@ def process_image(n_clicks, encoded_image, img_hash, show_annotations):
                 # Update layout
                 fig_bar.update_layout(
                     height=300,
-                    margin=dict(l=20, r=20, t=40, b=20),
-                    font=dict(size=12),
+                    margin={"l": 20, "r": 20, "t": 40, "b": 20},
+                    font={"size": 12},
                     showlegend=False,  # Hide color legend since colors are self-explanatory
-                    xaxis=dict(
-                        tickmode="array",
-                        tickvals=all_concentrations,
-                        ticktext=[f"{c}" for c in all_concentrations],
-                        title="Concentration Level",
-                    ),
+                    xaxis={
+                        "tickmode": "array",
+                        "tickvals": all_concentrations,
+                        "ticktext": [f"{c}" for c in all_concentrations],
+                        "title": "Concentration Level",
+                    },
                 )
 
                 # Add concentration labels on hover
@@ -1304,12 +1319,8 @@ def display_selected_cell(click_data, cell_data, encoded_image, mask_data, img_h
 
             if isinstance(customdata, list):
                 if len(customdata) > 0:
-                    if isinstance(customdata[0], list):
-                        # Double nested array
-                        cell_id = customdata[0][0]
-                    else:
-                        # Single nested array
-                        cell_id = customdata[0]
+                    # Fixed ternary operator (SIM108)
+                    cell_id = customdata[0][0] if isinstance(customdata[0], list) else customdata[0]
                 else:
                     return html.Div(), html.P("Invalid click data", className="text-muted")
             else:
@@ -1356,8 +1367,8 @@ def display_selected_cell(click_data, cell_data, encoded_image, mask_data, img_h
             y1 = min(len(mask_data["mask"]), y1 + padding)
             x1 = min(len(mask_data["mask"][0]), x1 + padding)
 
-            width = x1 - x0
-            height = y1 - y0
+            x1 - x0
+            y1 - y0
 
             # Create a zoomed-in view of the cell
             cell_fig = go.Figure()
@@ -1370,18 +1381,18 @@ def display_selected_cell(click_data, cell_data, encoded_image, mask_data, img_h
 
             # Add the original image
             cell_fig.add_layout_image(
-                dict(
-                    source=encoded_image,
-                    xref="x",
-                    yref="y",
-                    x=0,
-                    y=0,
-                    sizex=full_width,
-                    sizey=full_height,
-                    sizing="stretch",
-                    opacity=1,
-                    layer="below",
-                )
+                {
+                    "source": encoded_image,
+                    "xref": "x",
+                    "yref": "y",
+                    "x": 0,
+                    "y": 0,
+                    "sizex": full_width,
+                    "sizey": full_height,
+                    "sizing": "stretch",
+                    "opacity": 1,
+                    "layer": "below",
+                }
             )
 
             # Draw a rectangle around the cell
@@ -1391,7 +1402,7 @@ def display_selected_cell(click_data, cell_data, encoded_image, mask_data, img_h
                 y0=y0,
                 x1=x1,
                 y1=y1,
-                line=dict(color=border_color, width=3),
+                line={"color": border_color, "width": 3},
                 fillcolor="rgba(0,0,0,0)",
             )
 
@@ -1399,7 +1410,7 @@ def display_selected_cell(click_data, cell_data, encoded_image, mask_data, img_h
             cell_fig.update_layout(
                 autosize=True,
                 height=300,
-                margin=dict(l=0, r=0, t=0, b=0),
+                margin={"l": 0, "r": 0, "t": 0, "b": 0},
                 showlegend=False,
                 plot_bgcolor="rgba(0,0,0,0)",
                 paper_bgcolor="rgba(0,0,0,0)",
@@ -1497,13 +1508,13 @@ def display_selected_cell(click_data, cell_data, encoded_image, mask_data, img_h
         return html.Div(), html.P(f"Error: {e!s}", className="text-danger")
 
 
-# Callback to update status after actions complete
+# Callback to update status after actions complete - Fixed unused arguments (ARG001)
 @app.callback(
     Output("status-alert", "children", allow_duplicate=True),
     [Input("cell-data-store", "data"), Input("selected-cell-details", "children")],
     prevent_initial_call=True,
 )
-def clear_status_after_action(cell_data, cell_details):
+def clear_status_after_action(_cell_data, _cell_details):
     # This callback will fire after major actions complete
     # We return None to clear any previous status messages
     return None

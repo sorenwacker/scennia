@@ -338,7 +338,7 @@ class CellClassifier(L.LightningModule):
         }
 
 
-def log_example_images(logger, data_module, n_per_class=3):
+def log_example_images(logger, data_module, n_per_class=2):
     """Log example images from each class to wandb"""
     if not logger or not hasattr(logger, "experiment"):
         return

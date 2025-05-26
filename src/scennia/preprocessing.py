@@ -223,7 +223,7 @@ class CellPreprocessor:
         try:
             # Load the image
             img = np.array(Image.open(img_path))
-            img_name = os.path.basename(img_path)
+            os.path.basename(img_path)
 
             # Use a hash of the image data for unique identification
             img_hash = hashlib.md5(img.tobytes()).hexdigest()
@@ -368,7 +368,7 @@ class CellPreprocessor:
 
         # Verify all image paths exist
         missing_files = []
-        for idx, row in df.iterrows():
+        for _idx, row in df.iterrows():
             if not os.path.exists(row["cell_path"]):
                 missing_files.append(row["cell_path"])
 
