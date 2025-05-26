@@ -6,7 +6,7 @@ authors = [
 ]
 description = "Code for SCENNIA project."
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 dependencies = []
 
 [tool.uv]
@@ -34,7 +34,9 @@ version-file = "_version.py"
 Homepage = "https://gitlab.ewi.tudelft.nl/reit/scennia"
 
 [project.scripts]
-main_script = "scennia.main:main"
+scennia_preprocessing = "scennia.preprocessing:main"
+scennia_train_model = "scennia.train_model:main"
+scennia_app = "scennia.app:main"
 
 [tool.pytest.ini_options]
 minversion = "6.0"
