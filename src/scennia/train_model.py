@@ -226,7 +226,7 @@ class CellClassifier(L.LightningModule):
     def forward(self, x):
         return self.backbone(x)
 
-    def training_step(self, batch, batch_idx):
+    def training_step(self, batch, batch_idx):  # noqa: ARG002
         x, y = batch
         logits = self.forward(x)
         loss = F.cross_entropy(logits, y)
@@ -243,7 +243,7 @@ class CellClassifier(L.LightningModule):
 
         return loss
 
-    def validation_step(self, batch, batch_idx):
+    def validation_step(self, batch, batch_idx):  # noqa: ARG002
         x, y = batch
         logits = self.forward(x)
         loss = F.cross_entropy(logits, y)
@@ -260,7 +260,7 @@ class CellClassifier(L.LightningModule):
 
         return loss
 
-    def test_step(self, batch, batch_idx):
+    def test_step(self, batch, batch_idx):  # noqa: ARG002
         x, y = batch
         logits = self.forward(x)
         loss = F.cross_entropy(logits, y)
