@@ -84,9 +84,29 @@ class CellDataModule(L.LightningDataModule):
         print(f"Classes: {self.class_names}")
         print(f"Number of classes: {self.num_classes}")
 
-        # Split data
-        train_df, temp_df = train_test_split(df, test_size=0.3, stratify=df["label"], random_state=42)
-        val_df, test_df = train_test_split(temp_df, test_size=0.5, stratify=temp_df["label"], random_state=42)
+        # Split data based on source_image to prevent data leakage
+        # Get unique source images with their class distribution
+        source_image_stats = df.groupby("source_image")["label"].agg(["first", "count"]).reset_index()
+        source_image_stats.columns = ["source_image", "label", "count"]
+
+        # Split source images (not individual cells) to prevent leakage
+        train_sources, temp_sources = train_test_split(
+            source_image_stats["source_image"], test_size=0.3, stratify=source_image_stats["label"], random_state=42
+        )
+        val_sources, test_sources = train_test_split(
+            temp_sources,
+            test_size=0.5,
+            stratify=source_image_stats[source_image_stats["source_image"].isin(temp_sources)]["label"],
+            random_state=42,
+        )
+
+        # Create dataframes based on source image splits
+        train_df = df[df["source_image"].isin(train_sources)].copy()
+        val_df = df[df["source_image"].isin(val_sources)].copy()
+        test_df = df[df["source_image"].isin(test_sources)].copy()
+
+        print(f"Source images - Train: {len(train_sources)}, Val: {len(val_sources)}, Test: {len(test_sources)}")
+        print(f"Total source images: {len(source_image_stats)}")
 
         # Create datasets
         self.train_dataset = CellDataset(train_df, self.train_transforms, self.csv_dir)
@@ -423,6 +443,7 @@ def train_model(
     max_epochs=50,
     gpus=1,
     use_pretrained=True,
+    learning_rate=1e-3,
     weight_decay=1e-4,
     loss_patience=7,
     f1_patience=5,
@@ -443,7 +464,7 @@ def train_model(
     # Create model
     model = CellClassifier(
         num_classes=data_module.num_classes,
-        learning_rate=1e-3,
+        learning_rate=learning_rate,
         model_name=model_name,
         use_pretrained=use_pretrained,
         class_names=data_module.class_names,
@@ -454,6 +475,7 @@ def train_model(
     print(f"  Architecture: {model_name}")
     print(f"  Pretrained weights: {'Yes' if use_pretrained else 'No'}")
     print(f"  Number of classes: {data_module.num_classes}")
+    print(f"  Learning rate: {learning_rate}")
     print(f"  Weight decay: {weight_decay}")
     print(f"  Loss patience: {loss_patience}")
     print(f"  F1 patience: {f1_patience}")
@@ -538,7 +560,6 @@ def train_model(
         print(f"  Test Loss: {metrics['test_loss']:.4f}")
         print(f"  Test Accuracy: {metrics['test_acc']:.4f}")
         print(f"  Test F1 Score: {metrics['test_f1']:.4f}")
-        print(f"  Weight Decay: {metrics['weight_decay']}")
         print(f"  Final Epoch: {metrics['final_epoch']}")
         print(f"  Best Model: {metrics['best_model_path']}")
         print("=" * 50)
@@ -591,6 +612,9 @@ def main():
     parser.add_argument("--loss_patience", type=int, default=7, help="Patience for validation loss early stopping")
     parser.add_argument("--f1_patience", type=int, default=5, help="Patience for validation F1 early stopping")
     parser.add_argument("--min_delta", type=float, default=0.001, help="Minimum change to qualify as improvement")
+    parser.add_argument(
+        "--learning_rate", type=float, default=1e-3, help="Learning rate for the optimizer (default: 1e-3)"
+    )
     parser.add_argument(
         "--weight_decay", type=float, default=1e-4, help="Weight decay for L2 regularization (default: 1e-4)"
     )
