@@ -413,7 +413,7 @@ class CellClassifier(L.LightningModule):
         self.test_predictions.extend(preds.cpu().numpy())
         self.test_targets.extend(y.cpu().numpy())
 
-        # Log metrics properly
+        # Log metrics
         self.log("test_loss", loss, on_epoch=True)
         self.log("test_acc", acc, on_epoch=True)
         self.log("test_f1", f1, on_epoch=True)
