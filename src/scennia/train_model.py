@@ -23,6 +23,26 @@ from torchmetrics import Accuracy, F1Score
 from torchvision import models, transforms
 
 
+class ProgressiveUnfreezing(L.Callback):
+    def __init__(self, freeze_epochs=10, lr_reduction=0.1):
+        self.freeze_epochs = freeze_epochs
+        self.lr_reduction = lr_reduction
+        self.unfrozen = False
+
+    def on_train_epoch_start(self, trainer, pl_module):
+        if trainer.current_epoch == self.freeze_epochs and not self.unfrozen:
+            # Unfreeze backbone
+            for param in pl_module.backbone.parameters():
+                param.requires_grad = True
+
+            # Reduce learning rate
+            for param_group in trainer.optimizers[0].param_groups:
+                param_group["lr"] *= self.lr_reduction
+
+            print(f"🔓 Epoch {trainer.current_epoch}: Backbone unfrozen, LR reduced by {self.lr_reduction}x")
+            self.unfrozen = True
+
+
 class HistogramEqualization:
     """Apply histogram equalization to normalize image intensities"""
 
@@ -348,9 +368,9 @@ class CellClassifier(L.LightningModule):
         self.val_acc = Accuracy(task="multiclass", num_classes=num_classes)
         self.test_acc = Accuracy(task="multiclass", num_classes=num_classes)
 
-        self.train_f1 = F1Score(task="multiclass", num_classes=num_classes, average="macro")
-        self.val_f1 = F1Score(task="multiclass", num_classes=num_classes, average="macro")
-        self.test_f1 = F1Score(task="multiclass", num_classes=num_classes, average="macro")
+        self.train_f1 = F1Score(task="multiclass", num_classes=num_classes, average="weighted")
+        self.val_f1 = F1Score(task="multiclass", num_classes=num_classes, average="weighted")
+        self.test_f1 = F1Score(task="multiclass", num_classes=num_classes, average="weighted")
 
         # Store predictions for confusion matrix
         self.test_predictions = []
@@ -373,11 +393,13 @@ class CellClassifier(L.LightningModule):
         preds = torch.argmax(logits, dim=1)
         acc = self.train_acc(preds, y)
         f1 = self.train_f1(preds, y)
+        current_lr = self.trainer.optimizers[0].param_groups[0]["lr"]
 
         # Log metrics
         self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True)
         self.log("train_acc", acc, on_step=True, on_epoch=True, prog_bar=True)
         self.log("train_f1", f1, on_step=True, on_epoch=True, prog_bar=True)
+        self.log("learning_rate", current_lr, on_step=True, on_epoch=False, prog_bar=True)
 
         return loss
 
@@ -612,7 +634,10 @@ def train_model(
 
     # Early stopping callbacks with F1 monitoring
     early_stopping_loss = EarlyStopping(
-        monitor="val_loss", patience=loss_patience, mode="min", verbose=True, check_on_train_epoch_end=False
+        monitor="val_loss",
+        patience=loss_patience,
+        mode="min",
+        verbose=True,
     )
 
     early_stopping_f1 = EarlyStopping(
@@ -621,15 +646,16 @@ def train_model(
         mode="max",
         min_delta=min_delta,
         verbose=True,
-        check_on_train_epoch_end=False,
     )
+
+    unfreeze_callback = ProgressiveUnfreezing(freeze_epochs=3, lr_reduction=0.1)
 
     # Trainer
     trainer = L.Trainer(
         max_epochs=max_epochs,
         accelerator="gpu" if gpus > 0 else "cpu",
         devices=gpus if gpus > 0 else 1,
-        callbacks=[checkpoint_callback, early_stopping_loss, early_stopping_f1],
+        callbacks=[checkpoint_callback, early_stopping_loss, early_stopping_f1, unfreeze_callback],
         logger=logger,
         deterministic=True,
     )
@@ -750,6 +776,7 @@ def main():
         min_delta=args.min_delta,
         project_name=args.project_name,
         run_name=args.run_name,
+        learning_rate=args.learning_rate,
     )
 
     print(f"\nTraining completed! ONNX model saved at: {onnx_path}")
