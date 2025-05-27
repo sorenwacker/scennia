@@ -188,6 +188,7 @@ class CellClassifier(L.LightningModule):
         model_name="resnet50",
         use_pretrained=True,
         class_names=None,
+        weight_decay=1e-4,  # noqa: ARG002
     ):
         super().__init__()
         self.save_hyperparameters()
