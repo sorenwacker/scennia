@@ -174,7 +174,7 @@ class CellDataModule(L.LightningDataModule):
         # Calculate class weights based on training data
         class_weights = compute_class_weight("balanced", classes=np.unique(train_df["label"]), y=train_df["label"])
         self.class_weights = torch.FloatTensor(class_weights)
-        print(f"Class weights: {dict(zip(self.class_names, class_weights, strict=False))}")
+        print(f"\nClass weights: {dict(zip(self.class_names, class_weights, strict=False))}")
 
         self._setup_done = True
 
@@ -537,6 +537,7 @@ def train_model(
         use_pretrained=use_pretrained,
         class_names=data_module.class_names,
         weight_decay=weight_decay,
+        class_weights=data_module.class_weights,
     )
 
     print("\nModel configuration:")
@@ -645,6 +646,7 @@ def train_model(
         use_pretrained=use_pretrained,
         class_names=data_module.class_names,
         weight_decay=weight_decay,
+        class_weights=data_module.class_weights,
     )
 
     # Export to ONNX
