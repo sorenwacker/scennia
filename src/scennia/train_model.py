@@ -318,7 +318,7 @@ class CellClassifier(L.LightningModule):
             else:
                 self.backbone = models.resnet50(weights=None)
             self.backbone.fc = nn.Linear(self.backbone.fc.in_features, num_classes)
-        if model_name == "resnet18":
+        elif model_name == "resnet18":
             if use_pretrained:
                 self.backbone = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
             else:
@@ -636,18 +636,12 @@ def train_model(
         print(f"Weight decay: {param_group['weight_decay']}")
 
     # Test model
-    test_results = trainer.test(model, data_module)
+    trainer.test(model, data_module)
 
     # Log final test results to wandb explicitly
     if logger and hasattr(logger, "experiment"):
-        # Extract test results from the returned metrics
-        test_metrics = test_results[0] if test_results else {}
-
-        # Log all test metrics explicitly
+        # Log all remaining data
         metrics = {
-            "test_loss": test_metrics.get("test_loss", 0.0),
-            "test_acc": test_metrics.get("test_acc", 0.0),
-            "test_f1": test_metrics.get("test_f1", 0.0),
             "final_epoch": trainer.current_epoch,
             "total_training_time": time.time() - start_time,
             "best_model_path": checkpoint_callback.best_model_path,
@@ -656,16 +650,6 @@ def train_model(
         }
 
         logger.experiment.log(metrics)
-
-        print("\n" + "=" * 50)
-        print("FINAL TEST RESULTS:")
-        print("=" * 50)
-        print(f"  Test Loss: {metrics['test_loss']:.4f}")
-        print(f"  Test Accuracy: {metrics['test_acc']:.4f}")
-        print(f"  Test F1 Score: {metrics['test_f1']:.4f}")
-        print(f"  Final Epoch: {metrics['final_epoch']}")
-        print(f"  Best Model: {metrics['best_model_path']}")
-        print("=" * 50)
 
     # Print class mapping
     print("\nClass mapping:")
