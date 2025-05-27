@@ -105,13 +105,13 @@ class CellDataModule(L.LightningDataModule):
         # Transforms
         self.train_transforms = transforms.Compose(
             [
-                AspectRatioResize(img_size),
-                # transforms.Resize((img_size, img_size)),
-                HistogramEqualization(),
-                transforms.RandomRotation(30),
+                # AspectRatioResize(img_size),
+                transforms.Resize((img_size, img_size)),
+                # HistogramEqualization(),
+                # transforms.RandomRotation(30),
                 transforms.RandomHorizontalFlip(),
                 transforms.RandomVerticalFlip(),
-                transforms.ColorJitter(brightness=0.2, contrast=0.2),
+                # transforms.ColorJitter(brightness=0.2, contrast=0.2),
                 transforms.ToTensor(),
                 transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
             ]
@@ -119,8 +119,8 @@ class CellDataModule(L.LightningDataModule):
 
         self.val_transforms = transforms.Compose(
             [
-                AspectRatioResize(img_size),
-                # transforms.Resize((img_size, img_size)),
+                # AspectRatioResize(img_size),
+                transforms.Resize((img_size, img_size)),
                 transforms.ToTensor(),
                 transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
             ]
