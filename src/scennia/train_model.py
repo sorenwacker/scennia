@@ -23,6 +23,40 @@ from torchmetrics import Accuracy, F1Score
 from torchvision import models, transforms
 
 
+class HistogramEqualization:
+    """Apply histogram equalization to normalize image intensities"""
+
+    def __call__(self, img):
+        # img is PIL Image
+        if img.mode == "L":  # Grayscale
+            # Convert to tensor for processing
+            tensor = transforms.to_tensor(img)
+            tensor = self.equalize_tensor(tensor)
+            return transforms.to_pil_image(tensor)
+        if img.mode == "RGB":
+            # Apply to each channel separately
+            r, g, b = img.split()
+            r_eq = transforms.to_pil_image(self.equalize_tensor(transforms.to_tensor(r)))
+            g_eq = transforms.to_pil_image(self.equalize_tensor(transforms.to_tensor(g)))
+            b_eq = transforms.to_pil_image(self.equalize_tensor(transforms.to_tensor(b)))
+            return Image.merge("RGB", (r_eq, g_eq, b_eq))
+        return img
+
+    def equalize_tensor(self, tensor):
+        """Apply histogram equalization to a tensor"""
+        # Flatten and get histogram
+        flat = tensor.flatten()
+        hist = torch.histc(flat, bins=256, min=0, max=1)
+
+        # Compute cumulative distribution
+        cdf = torch.cumsum(hist, dim=0)
+        cdf = cdf / cdf[-1]  # Normalize
+
+        # Map values
+        indices = (flat * 255).long().clamp(0, 255)
+        return cdf[indices].reshape(tensor.shape)
+
+
 class AspectRatioResize:
     """Resize image while preserving aspect ratio and pad to square"""
 
@@ -73,6 +107,7 @@ class CellDataModule(L.LightningDataModule):
             [
                 AspectRatioResize(img_size),
                 # transforms.Resize((img_size, img_size)),
+                HistogramEqualization(),
                 transforms.RandomRotation(30),
                 transforms.RandomHorizontalFlip(),
                 transforms.RandomVerticalFlip(),
