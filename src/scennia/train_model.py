@@ -1,10 +1,11 @@
 import argparse
 import json
 import os
-import time  # Added missing import
+import time
 
 import lightning as L
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 import seaborn as sns
 import torch
@@ -16,9 +17,45 @@ from lightning.pytorch.loggers import WandbLogger
 from PIL import Image
 from sklearn.metrics import confusion_matrix
 from sklearn.model_selection import train_test_split
+from sklearn.utils.class_weight import compute_class_weight
 from torch.utils.data import DataLoader, Dataset
 from torchmetrics import Accuracy, F1Score
 from torchvision import models, transforms
+
+
+class AspectRatioResize:
+    """Resize image while preserving aspect ratio and pad to square"""
+
+    def __init__(self, target_size, fill_color=0):
+        self.target_size = target_size
+        self.fill_color = fill_color
+
+    def __call__(self, img):
+        # Get original dimensions
+        if hasattr(img, "size"):  # PIL Image
+            w, h = img.size
+        else:  # torch tensor
+            h, w = img.shape[-2:]
+
+        # Calculate scale factor (resize so largest dimension fits)
+        scale = self.target_size / max(w, h)
+        new_w, new_h = int(w * scale), int(h * scale)
+
+        # Resize image
+        resize_transform = transforms.Resize((new_h, new_w), antialias=True)
+        resized_img = resize_transform(img)
+
+        # Calculate padding
+        pad_w = (self.target_size - new_w) // 2
+        pad_h = (self.target_size - new_h) // 2
+        pad_w_extra = (self.target_size - new_w) % 2
+        pad_h_extra = (self.target_size - new_h) % 2
+
+        # Apply padding (left, top, right, bottom)
+        padding = (pad_w, pad_h, pad_w + pad_w_extra, pad_h + pad_h_extra)
+        pad_transform = transforms.Pad(padding, fill=self.fill_color, padding_mode="constant")
+
+        return pad_transform(resized_img)
 
 
 class CellDataModule(L.LightningDataModule):
@@ -34,7 +71,8 @@ class CellDataModule(L.LightningDataModule):
         # Transforms
         self.train_transforms = transforms.Compose(
             [
-                transforms.Resize((img_size, img_size)),
+                AspectRatioResize(img_size),
+                # transforms.Resize((img_size, img_size)),
                 transforms.RandomRotation(30),
                 transforms.RandomHorizontalFlip(),
                 transforms.RandomVerticalFlip(),
@@ -46,79 +84,97 @@ class CellDataModule(L.LightningDataModule):
 
         self.val_transforms = transforms.Compose(
             [
-                transforms.Resize((img_size, img_size)),
+                AspectRatioResize(img_size),
+                # transforms.Resize((img_size, img_size)),
                 transforms.ToTensor(),
                 transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
             ]
         )
 
     def setup(self, stage=None):  # noqa: ARG002
-        # Only setup once to avoid multiple calls
         if self._setup_done:
             return
 
-        # Load dataset
         df = pd.read_csv(self.csv_path)
 
-        # Create class labels with zero-padded concentrations for proper ordinal sorting
+        # Create class labels
         def create_ordinal_class_name(row):
             treatment_type = row["treatment_type"]
             concentration = int(row["concentration"])
-            # Zero-pad to 2 digits: 00, 05, 10, 20, 40, 80
             padded_conc = f"{concentration:02d}"
             return f"{treatment_type}_{padded_conc}"
 
         df["class"] = df.apply(create_ordinal_class_name, axis=1)
-
-        # Alphabetical sorting now gives correct ordinal order
         unique_classes = sorted(df["class"].unique())
-
-        # Create label mapping
         class_to_label = {class_name: i for i, class_name in enumerate(unique_classes)}
         df["label"] = df["class"].map(class_to_label)
 
-        # Store class information
         self.num_classes = len(unique_classes)
         self.class_names = unique_classes
 
-        print(f"Classes: {self.class_names}")
-        print(f"Number of classes: {self.num_classes}")
-
-        # Split data based on source_image to prevent data leakage
-        # Get unique source images with their class distribution
-        source_image_stats = df.groupby("source_image")["label"].agg(["first", "count"]).reset_index()
-        source_image_stats.columns = ["source_image", "label", "count"]
-
-        # Split source images (not individual cells) to prevent leakage
-        train_sources, temp_sources = train_test_split(
-            source_image_stats["source_image"], test_size=0.3, stratify=source_image_stats["label"], random_state=42
+        # Get source image statistics with MORE detailed balancing
+        source_image_stats = (
+            df.groupby("source_image")
+            .agg({"label": ["first", "count"], "treatment_type": "first", "concentration": "first"})
+            .reset_index()
         )
-        val_sources, test_sources = train_test_split(
-            temp_sources,
-            test_size=0.5,
-            stratify=source_image_stats[source_image_stats["source_image"].isin(temp_sources)]["label"],
+
+        source_image_stats.columns = ["source_image", "label", "cell_count", "treatment_type", "concentration"]
+
+        # Create a composite stratification key for better balance
+        source_image_stats["stratify_key"] = (
+            source_image_stats["treatment_type"].astype(str) + "_" + source_image_stats["concentration"].astype(str)
+        )
+
+        print("Source image distribution:")
+        print(source_image_stats.groupby("stratify_key")["source_image"].count())
+
+        # First split: train vs (val + test)
+        train_sources, temp_sources = train_test_split(
+            source_image_stats["source_image"],
+            test_size=0.3,
+            stratify=source_image_stats["stratify_key"],
             random_state=42,
         )
 
-        # Create dataframes based on source image splits
+        # Second split: val vs test
+        temp_stats = source_image_stats[source_image_stats["source_image"].isin(temp_sources)]
+        val_sources, test_sources = train_test_split(
+            temp_stats["source_image"],
+            test_size=0.5,
+            stratify=temp_stats["stratify_key"],
+            random_state=42,
+        )
+
+        # Create dataframes
         train_df = df[df["source_image"].isin(train_sources)].copy()
         val_df = df[df["source_image"].isin(val_sources)].copy()
         test_df = df[df["source_image"].isin(test_sources)].copy()
 
-        print(f"Source images - Train: {len(train_sources)}, Val: {len(val_sources)}, Test: {len(test_sources)}")
-        print(f"Total source images: {len(source_image_stats)}")
-
-        # Create datasets
+        # Create datasets with enhanced augmentation for training
         self.train_dataset = CellDataset(train_df, self.train_transforms, self.csv_dir)
         self.val_dataset = CellDataset(val_df, self.val_transforms, self.csv_dir)
         self.test_dataset = CellDataset(test_df, self.val_transforms, self.csv_dir)
 
-        # Store dataframes for example image selection
+        # Store for analysis
         self.train_df = train_df
         self.val_df = val_df
         self.test_df = test_df
 
-        print(f"Train: {len(self.train_dataset)}, Val: {len(self.val_dataset)}, Test: {len(self.test_dataset)}")
+        print("\nSplit statistics:")
+        for split_name, split_df in [("Train", train_df), ("Val", val_df), ("Test", test_df)]:
+            print(f"\n{split_name}:")
+            for class_name in unique_classes:
+                class_data = split_df[split_df["class"] == class_name]
+                n_images = class_data["source_image"].nunique() if len(class_data) > 0 else 0
+                n_cells = len(class_data)
+                print(f"  {class_name}: {n_images} images, {n_cells} cells")
+            print(f"  Total cells: {len(split_df)}")
+
+        # Calculate class weights based on training data
+        class_weights = compute_class_weight("balanced", classes=np.unique(train_df["label"]), y=train_df["label"])
+        self.class_weights = torch.FloatTensor(class_weights)
+        print(f"Class weights: {dict(zip(self.class_names, class_weights, strict=False))}")
 
         self._setup_done = True
 
@@ -209,10 +265,12 @@ class CellClassifier(L.LightningModule):
         use_pretrained=True,
         class_names=None,
         weight_decay=1e-4,  # noqa: ARG002
+        class_weights=None,
     ):
         super().__init__()
         self.save_hyperparameters()
 
+        self.class_weights = class_weights
         self.num_classes = num_classes
         self.learning_rate = learning_rate
         self.use_pretrained = use_pretrained
@@ -257,7 +315,12 @@ class CellClassifier(L.LightningModule):
     def training_step(self, batch, batch_idx):  # noqa: ARG002
         x, y = batch
         logits = self.forward(x)
-        loss = F.cross_entropy(logits, y)
+
+        # Use weighted loss if class weights provided
+        if self.class_weights is not None:
+            loss = F.cross_entropy(logits, y, weight=self.class_weights.to(self.device))
+        else:
+            loss = F.cross_entropy(logits, y)
 
         # Calculate metrics
         preds = torch.argmax(logits, dim=1)
@@ -274,7 +337,12 @@ class CellClassifier(L.LightningModule):
     def validation_step(self, batch, batch_idx):  # noqa: ARG002
         x, y = batch
         logits = self.forward(x)
-        loss = F.cross_entropy(logits, y)
+
+        # Use weighted loss for validation too
+        if self.class_weights is not None:
+            loss = F.cross_entropy(logits, y, weight=self.class_weights.to(self.device))
+        else:
+            loss = F.cross_entropy(logits, y)
 
         # Calculate metrics
         preds = torch.argmax(logits, dim=1)
