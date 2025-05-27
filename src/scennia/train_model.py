@@ -181,7 +181,14 @@ class CellDataset(Dataset):
 
 
 class CellClassifier(L.LightningModule):
-    def __init__(self, num_classes, learning_rate=1e-3, model_name="resnet50", use_pretrained=True, class_names=None):
+    def __init__(
+        self,
+        num_classes,
+        learning_rate=1e-3,
+        model_name="resnet50",
+        use_pretrained=True,
+        class_names=None,
+    ):
         super().__init__()
         self.save_hyperparameters()
 
@@ -327,7 +334,7 @@ class CellClassifier(L.LightningModule):
             self.test_targets = []
 
     def configure_optimizers(self):
-        optimizer = torch.optim.AdamW(self.parameters(), lr=self.learning_rate, weight_decay=1e-4)
+        optimizer = torch.optim.AdamW(self.parameters(), lr=self.learning_rate, weight_decay=self.hparams.weight_decay)
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="min", factor=0.5, patience=3)
         return {
             "optimizer": optimizer,
@@ -415,6 +422,7 @@ def train_model(
     max_epochs=50,
     gpus=1,
     use_pretrained=True,
+    weight_decay=1e-4,
     loss_patience=7,
     f1_patience=5,
     min_delta=0.001,
@@ -438,19 +446,21 @@ def train_model(
         model_name=model_name,
         use_pretrained=use_pretrained,
         class_names=data_module.class_names,
+        weight_decay=weight_decay,
     )
 
     print("\nModel configuration:")
     print(f"  Architecture: {model_name}")
     print(f"  Pretrained weights: {'Yes' if use_pretrained else 'No'}")
     print(f"  Number of classes: {data_module.num_classes}")
+    print(f"  Weight decay: {weight_decay}")
     print(f"  Loss patience: {loss_patience}")
     print(f"  F1 patience: {f1_patience}")
     print(f"  Min delta: {min_delta}")
 
     # Create run name if not provided
     if run_name is None:
-        run_name = f"{model_name}_{'pretrained' if use_pretrained else 'scratch'}"
+        run_name = f"{model_name}_{'pretrained' if use_pretrained else 'scratch'}_wd{weight_decay}"
 
     # Wandb Logger
     logger = WandbLogger(project=project_name, name=run_name, save_dir="logs")
@@ -512,6 +522,7 @@ def train_model(
             "total_training_time": time.time() - start_time,
             "best_model_path": checkpoint_callback.best_model_path,
             "training_completed": True,
+            "weight_decay": weight_decay,
         }
 
         logger.experiment.log(metrics)
@@ -522,6 +533,7 @@ def train_model(
         print(f"  Test Loss: {metrics['test_loss']:.4f}")
         print(f"  Test Accuracy: {metrics['test_acc']:.4f}")
         print(f"  Test F1 Score: {metrics['test_f1']:.4f}")
+        print(f"  Weight Decay: {metrics['weight_decay']}")
         print(f"  Final Epoch: {metrics['final_epoch']}")
         print(f"  Best Model: {metrics['best_model_path']}")
         print("=" * 50)
@@ -538,6 +550,7 @@ def train_model(
         model_name=model_name,
         use_pretrained=use_pretrained,
         class_names=data_module.class_names,
+        weight_decay=weight_decay,
     )
 
     # Export to ONNX
@@ -573,6 +586,9 @@ def main():
     parser.add_argument("--loss_patience", type=int, default=7, help="Patience for validation loss early stopping")
     parser.add_argument("--f1_patience", type=int, default=5, help="Patience for validation F1 early stopping")
     parser.add_argument("--min_delta", type=float, default=0.001, help="Minimum change to qualify as improvement")
+    parser.add_argument(
+        "--weight_decay", type=float, default=1e-4, help="Weight decay for L2 regularization (default: 1e-4)"
+    )
 
     # Wandb parameters
     parser.add_argument("--project_name", type=str, default="cell-classification", help="Wandb project name")
@@ -589,6 +605,7 @@ def main():
         max_epochs=args.max_epochs,
         gpus=args.gpus,
         use_pretrained=not args.no_pretrained,
+        weight_decay=args.weight_decay,
         loss_patience=args.loss_patience,
         f1_patience=args.f1_patience,
         min_delta=args.min_delta,
