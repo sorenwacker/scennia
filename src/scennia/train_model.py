@@ -423,14 +423,6 @@ class CellClassifier(L.LightningModule):
     def on_test_epoch_end(self):
         """Create and log confusion matrix after test epoch"""
 
-        # Compute final metrics from accumulated state
-        final_test_acc = self.test_acc.compute()
-        final_test_f1 = self.test_f1.compute()
-
-        # Log the computed metrics
-        self.log("test_acc_final", final_test_acc)
-        self.log("test_f1_final", final_test_f1)
-
         if len(self.test_predictions) > 0:
             # Create confusion matrix
             cm = confusion_matrix(self.test_targets, self.test_predictions)
@@ -455,23 +447,14 @@ class CellClassifier(L.LightningModule):
                         "confusion_matrix_data": wandb.Table(
                             data=cm.tolist(), columns=self.class_names, rows=self.class_names
                         ),
-                        "test_acc_final": final_test_acc.item(),
-                        "test_f1_final": final_test_f1.item(),
                     }
-                )
-
-                # Update summary
-                self.logger.experiment.summary.update(
-                    {"test_acc": final_test_acc.item(), "test_f1": final_test_f1.item()}
                 )
 
             plt.close()
 
-        # Reset metrics for next run
-        self.test_acc.reset()
-        self.test_f1.reset()
-        self.test_predictions = []
-        self.test_targets = []
+            # Clear stored predictions
+            self.test_predictions = []
+            self.test_targets = []
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=self.learning_rate, weight_decay=self.hparams.weight_decay)
