@@ -330,6 +330,12 @@ class CellClassifier(L.LightningModule):
             else:
                 self.backbone = models.efficientnet_b0(weights=None)
             self.backbone.classifier[1] = nn.Linear(self.backbone.classifier[1].in_features, num_classes)
+        elif model_name == "efficientnet_b1":
+            if use_pretrained:
+                self.backbone = models.efficientnet_b1(weights=models.EfficientNet_B1_Weights.DEFAULT)
+            else:
+                self.backbone = models.efficientnet_b1(weights=None)
+            self.backbone.classifier[1] = nn.Linear(self.backbone.classifier[1].in_features, num_classes)
         elif model_name == "vit_b_16":
             if use_pretrained:
                 self.backbone = models.vit_b_16(weights=models.ViT_B_16_Weights.DEFAULT)
@@ -636,12 +642,18 @@ def train_model(
         print(f"Weight decay: {param_group['weight_decay']}")
 
     # Test model
-    trainer.test(model, data_module)
+    test_results = trainer.test(model, data_module)
 
     # Log final test results to wandb explicitly
     if logger and hasattr(logger, "experiment"):
-        # Log all remaining data
+        # Extract test results from the returned metrics
+        test_metrics = test_results[0] if test_results else {}
+
+        # Log all test metrics explicitly
         metrics = {
+            "test_loss": test_metrics.get("test_loss", 0.0),
+            "test_acc": test_metrics.get("test_acc", 0.0),
+            "test_f1": test_metrics.get("test_f1", 0.0),
             "final_epoch": trainer.current_epoch,
             "total_training_time": time.time() - start_time,
             "best_model_path": checkpoint_callback.best_model_path,
@@ -650,6 +662,16 @@ def train_model(
         }
 
         logger.experiment.log(metrics)
+
+        print("\n" + "=" * 50)
+        print("FINAL TEST RESULTS:")
+        print("=" * 50)
+        print(f"  Test Loss: {metrics['test_loss']:.4f}")
+        print(f"  Test Accuracy: {metrics['test_acc']:.4f}")
+        print(f"  Test F1 Score: {metrics['test_f1']:.4f}")
+        print(f"  Final Epoch: {metrics['final_epoch']}")
+        print(f"  Best Model: {metrics['best_model_path']}")
+        print("=" * 50)
 
     # Print class mapping
     print("\nClass mapping:")
@@ -687,7 +709,7 @@ def main():
         "--model_name",
         type=str,
         default="resnet50",
-        choices=["resnet18", "resnet50", "efficientnet_b0", "vit_b_16"],
+        choices=["resnet18", "resnet50", "efficientnet_b0", "efficientnet_b1", "vit_b_16"],
         help="Model architecture to use",
     )
     parser.add_argument("--img_size", type=int, default=224, help="Input image size")
