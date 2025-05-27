@@ -30,15 +30,15 @@ class HistogramEqualization:
         # img is PIL Image
         if img.mode == "L":  # Grayscale
             # Convert to tensor for processing
-            tensor = transforms.to_tensor(img)
+            tensor = transforms.functional.to_tensor(img)
             tensor = self.equalize_tensor(tensor)
-            return transforms.to_pil_image(tensor)
+            return transforms.functional.to_pil_image(tensor)
         if img.mode == "RGB":
             # Apply to each channel separately
             r, g, b = img.split()
-            r_eq = transforms.to_pil_image(self.equalize_tensor(transforms.to_tensor(r)))
-            g_eq = transforms.to_pil_image(self.equalize_tensor(transforms.to_tensor(g)))
-            b_eq = transforms.to_pil_image(self.equalize_tensor(transforms.to_tensor(b)))
+            r_eq = transforms.functional.to_pil_image(self.equalize_tensor(transforms.functional.to_tensor(r)))
+            g_eq = transforms.functional.to_pil_image(self.equalize_tensor(transforms.functional.to_tensor(g)))
+            b_eq = transforms.functional.to_pil_image(self.equalize_tensor(transforms.functional.to_tensor(b)))
             return Image.merge("RGB", (r_eq, g_eq, b_eq))
         return img
 
