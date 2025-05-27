@@ -108,7 +108,7 @@ class CellDataModule(L.LightningDataModule):
                 # AspectRatioResize(img_size),
                 transforms.Resize((img_size, img_size)),
                 # HistogramEqualization(),
-                # transforms.RandomRotation(30),
+                transforms.RandomRotation(30),
                 transforms.RandomHorizontalFlip(),
                 transforms.RandomVerticalFlip(),
                 # transforms.ColorJitter(brightness=0.2, contrast=0.2),
@@ -318,6 +318,12 @@ class CellClassifier(L.LightningModule):
             else:
                 self.backbone = models.resnet50(weights=None)
             self.backbone.fc = nn.Linear(self.backbone.fc.in_features, num_classes)
+        if model_name == "resnet18":
+            if use_pretrained:
+                self.backbone = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
+            else:
+                self.backbone = models.resnet18(weights=None)
+            self.backbone.fc = nn.Linear(self.backbone.fc.in_features, num_classes)
         elif model_name == "efficientnet_b0":
             if use_pretrained:
                 self.backbone = models.efficientnet_b0(weights=models.EfficientNet_B0_Weights.DEFAULT)
@@ -381,6 +387,8 @@ class CellClassifier(L.LightningModule):
 
         # Calculate metrics
         preds = torch.argmax(logits, dim=1)
+
+        # Calculate metrics for this batch
         acc = self.val_acc(preds, y)
         f1 = self.val_f1(preds, y)
 
@@ -405,7 +413,7 @@ class CellClassifier(L.LightningModule):
         self.test_predictions.extend(preds.cpu().numpy())
         self.test_targets.extend(y.cpu().numpy())
 
-        # Log metrics
+        # Log metrics properly
         self.log("test_loss", loss, on_epoch=True)
         self.log("test_acc", acc, on_epoch=True)
         self.log("test_f1", f1, on_epoch=True)
@@ -414,6 +422,15 @@ class CellClassifier(L.LightningModule):
 
     def on_test_epoch_end(self):
         """Create and log confusion matrix after test epoch"""
+
+        # Compute final metrics from accumulated state
+        final_test_acc = self.test_acc.compute()
+        final_test_f1 = self.test_f1.compute()
+
+        # Log the computed metrics
+        self.log("test_acc_final", final_test_acc)
+        self.log("test_f1_final", final_test_f1)
+
         if len(self.test_predictions) > 0:
             # Create confusion matrix
             cm = confusion_matrix(self.test_targets, self.test_predictions)
@@ -432,30 +449,29 @@ class CellClassifier(L.LightningModule):
 
             # Log to wandb
             if self.logger and hasattr(self.logger, "experiment"):
-                # Log confusion matrix
                 self.logger.experiment.log(
                     {
                         "confusion_matrix": wandb.Image(plt),
                         "confusion_matrix_data": wandb.Table(
                             data=cm.tolist(), columns=self.class_names, rows=self.class_names
                         ),
+                        "test_acc_final": final_test_acc.item(),
+                        "test_f1_final": final_test_f1.item(),
                     }
                 )
 
-                # Log final computed metrics
-                test_acc_final = self.test_acc.compute().item()
-                test_f1_final = self.test_f1.compute().item()
-
-                self.logger.experiment.log({"test_acc_final": test_acc_final, "test_f1_final": test_f1_final})
-
-                # Also log summary metrics
-                self.logger.experiment.summary.update({"test_acc": test_acc_final, "test_f1": test_f1_final})
+                # Update summary
+                self.logger.experiment.summary.update(
+                    {"test_acc": final_test_acc.item(), "test_f1": final_test_f1.item()}
+                )
 
             plt.close()
 
-            # Clear stored predictions
-            self.test_predictions = []
-            self.test_targets = []
+        # Reset metrics for next run
+        self.test_acc.reset()
+        self.test_f1.reset()
+        self.test_predictions = []
+        self.test_targets = []
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=self.learning_rate, weight_decay=self.hparams.weight_decay)
@@ -704,7 +720,7 @@ def main():
         "--model_name",
         type=str,
         default="resnet50",
-        choices=["resnet50", "efficientnet_b0", "vit_b_16"],
+        choices=["resnet18", "resnet50", "efficientnet_b0", "vit_b_16"],
         help="Model architecture to use",
     )
     parser.add_argument("--img_size", type=int, default=224, help="Input image size")
@@ -714,8 +730,8 @@ def main():
     parser.add_argument("--no_pretrained", action="store_true", help="Train from scratch without pretrained weights")
 
     # Early stopping parameters
-    parser.add_argument("--loss_patience", type=int, default=7, help="Patience for validation loss early stopping")
-    parser.add_argument("--f1_patience", type=int, default=5, help="Patience for validation F1 early stopping")
+    parser.add_argument("--loss_patience", type=int, default=10, help="Patience for validation loss early stopping")
+    parser.add_argument("--f1_patience", type=int, default=10, help="Patience for validation F1 early stopping")
     parser.add_argument("--min_delta", type=float, default=0.001, help="Minimum change to qualify as improvement")
     parser.add_argument(
         "--learning_rate", type=float, default=1e-3, help="Learning rate for the optimizer (default: 1e-3)"
