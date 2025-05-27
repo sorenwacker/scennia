@@ -506,6 +506,10 @@ def train_model(
     # Train model
     trainer.fit(model, data_module)
 
+    print("Optimizer state:")
+    for param_group in model.optimizers().optimizer.param_groups:
+        print(f"Weight decay: {param_group['weight_decay']}")
+
     # Test model
     test_results = trainer.test(model, data_module)
 
