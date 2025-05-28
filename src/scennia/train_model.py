@@ -39,7 +39,7 @@ class ProgressiveUnfreezing(L.Callback):
             for param_group in trainer.optimizers[0].param_groups:
                 param_group["lr"] *= self.lr_reduction
 
-            print(f"🔓 Epoch {trainer.current_epoch}: Backbone unfrozen, LR reduced by {self.lr_reduction}x")
+            print(f"Epoch {trainer.current_epoch}: Backbone unfrozen, LR reduced by {self.lr_reduction}x")
             self.unfrozen = True
 
 
@@ -363,6 +363,22 @@ class CellClassifier(L.LightningModule):
                 self.backbone = models.vit_b_16(weights=None)
             self.backbone.heads.head = nn.Linear(self.backbone.heads.head.in_features, num_classes)
 
+        if use_pretrained:
+            # Freeze all backbone parameters
+            for param in self.backbone.parameters():
+                param.requires_grad = False
+
+            # Unfreeze the final classifier layer to allow training
+            if model_name.startswith("resnet"):
+                for param in self.backbone.fc.parameters():
+                    param.requires_grad = True
+            elif model_name.startswith("efficientnet"):
+                for param in self.backbone.classifier.parameters():
+                    param.requires_grad = True
+            elif model_name == "vit_b_16":
+                for param in self.backbone.heads.parameters():
+                    param.requires_grad = True
+
         # Metrics
         self.train_acc = Accuracy(task="multiclass", num_classes=num_classes)
         self.val_acc = Accuracy(task="multiclass", num_classes=num_classes)
@@ -648,7 +664,7 @@ def train_model(
         verbose=True,
     )
 
-    unfreeze_callback = ProgressiveUnfreezing(freeze_epochs=3, lr_reduction=0.1)
+    unfreeze_callback = ProgressiveUnfreezing(freeze_epochs=0, lr_reduction=1.0)
 
     # Trainer
     trainer = L.Trainer(

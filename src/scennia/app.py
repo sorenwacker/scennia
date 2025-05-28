@@ -252,7 +252,7 @@ app.layout = html.Div(
     [
         dbc.Container(
             [
-                html.H1("Interactive Cell Analyzer with Lactase Classification", className="my-4 text-center"),
+                html.H1("Interactive Cell Analyzer with Lactate Classification", className="my-4 text-center"),
                 # Add model status indicator
                 html.Div(id="model-status", className="mb-3"),
                 dbc.Row(
@@ -1521,7 +1521,7 @@ def clear_status_after_action(_cell_data, _cell_details):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Cell Analysis App with Lactase Classification")
+    parser = argparse.ArgumentParser(description="Cell Analysis App with Lactate Classification")
     parser.add_argument("--model_path", type=str, default=None, help="Path to ONNX classification model")
     parser.add_argument("--port", type=int, default=7860, help="Port to run the app on")
     parser.add_argument("--debug", action="store_true", help="Run in debug mode")
