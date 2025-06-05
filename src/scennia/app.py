@@ -330,28 +330,20 @@ app.layout = html.Div(
                                     [
                                         dbc.CardHeader(
                                             [
-                                                dbc.Row(
+                                                "Cell Visualization",
+                                                dbc.Form(
                                                     [
-                                                        dbc.Col("Cell Visualization", width=8),
-                                                        dbc.Col(
-                                                            [
-                                                                dbc.Form(
-                                                                    [
-                                                                        dbc.Switch(
-                                                                            id="show-annotations",
-                                                                            label="Show Annotations",
-                                                                            value=True,
-                                                                            className="ms-2",
-                                                                        ),
-                                                                    ],
-                                                                    className="d-flex align-items-center",
-                                                                )
-                                                            ],
-                                                            width=4,
+                                                        dbc.Switch(
+                                                            id="show-annotations",
+                                                            label="Show Annotations",
+                                                            value=True,
+                                                            class_name="ms-2",
+                                                            label_style={"margin": "unset"},
                                                         ),
-                                                    ]
-                                                )
-                                            ]
+                                                    ],
+                                                ),
+                                            ],
+                                            class_name="d-flex justify-content-between",
                                         ),
                                         dbc.CardBody(
                                             [
@@ -395,7 +387,26 @@ app.layout = html.Div(
                     ]
                 ),
                 # Add status alert at the bottom
-                html.Div(id="status-alert", className="mt-3"),
+                html.Div(
+                    [
+                        dbc.Alert(
+                            id="image-load-alert",
+                            color="success",
+                            dismissable=True,
+                            is_open=False,
+                            duration=5000,
+                        ),
+                        dbc.Alert(
+                            id="image-process-alert",
+                            color="info",
+                            dismissable=True,
+                            is_open=False,
+                            duration=7500,
+                        ),
+                    ],
+                    id="status-alert",
+                    className="mt-3",
+                ),
             ],
             fluid=True,
         ),
@@ -735,7 +746,9 @@ def create_cell_crop(encoded_image, cell, mask_data, padding=10):
         Output("upload-output", "children"),
         Output("processed-image-store", "data"),
         Output("image-hash-store", "data"),
-        Output("status-alert", "children"),
+        Output("image-load-alert", "children"),
+        Output("image-load-alert", "color"),
+        Output("image-load-alert", "is_open"),
     ],
     Input("upload-image", "contents"),
     State("upload-image", "filename"),
@@ -818,18 +831,30 @@ def display_uploaded_image(contents, filename):
             style={"width": "100%", "height": "100%"},
         )
 
-        # Display a status alert
-        status = dbc.Alert(f"Image loaded successfully: {filename}", color="success", dismissable=True, is_open=True)
-
-        return visualization, html.Div(f"Uploaded: {filename}"), encoded_image, img_hash, status
+        return (
+            visualization,
+            html.Div(f"Uploaded: {filename}"),
+            encoded_image,
+            img_hash,
+            # Status alert
+            f"Image loaded successfully: {filename}",
+            "success",
+            True,
+        )
 
     except Exception as e:
         print(f"Error displaying uploaded image: {e!s}")
 
-        # Display error alert
-        error_alert = dbc.Alert(f"Error displaying image: {e!s}", color="danger", dismissable=True, is_open=True)
-
-        return html.Div("Error displaying image"), html.Div("Error processing upload"), None, None, error_alert
+        return (
+            html.Div("Error displaying image"),
+            html.Div("Error processing upload"),
+            None,
+            None,
+            # Status alert
+            f"Error displaying image: {e!s}",
+            "danger",
+            True,
+        )
 
 
 # Process image and check cache
@@ -840,7 +865,9 @@ def display_uploaded_image(contents, filename):
         Output("summary-panel", "children"),
         Output("visualization-output", "children", allow_duplicate=True),
         Output("cropped-images-store", "data"),
-        Output("status-alert", "children", allow_duplicate=True),
+        Output("image-process-alert", "children"),
+        Output("image-process-alert", "color"),
+        Output("image-process-alert", "is_open"),
     ],
     Input("process-button", "n_clicks"),
     [State("processed-image-store", "data"), State("image-hash-store", "data"), State("show-annotations", "value")],
@@ -995,15 +1022,17 @@ def process_image(n_clicks, encoded_image, img_hash, show_annotations):
             style={"width": "100%", "height": "100%"},
         )
 
-        # Success status
-        status = dbc.Alert(
+        return (
+            cell_data,
+            mask_data,
+            summary_content,
+            visualization,
+            cropped_images,
+            # Status alert
             f"Processed image from cache: {len(cell_data)} cells detected in {processing_time:.2f} seconds",
-            color="info",
-            dismissable=True,
-            is_open=True,
+            "info",
+            True,
         )
-
-        return cell_data, mask_data, summary_content, visualization, cropped_images, status
 
     try:
         processing_start = time.time()
@@ -1241,23 +1270,32 @@ def process_image(n_clicks, encoded_image, img_hash, show_annotations):
             style={"width": "100%", "height": "100%"},
         )
 
-        # Success status
-        status = dbc.Alert(
+        return (
+            cell_props,
+            mask_data,
+            summary_content,
+            visualization,
+            cropped_images,
+            # Status alert
             f"Processed image: {len(cell_props)} cells detected in {total_processing_time:.2f} seconds",
-            color="success",
-            dismissable=True,
-            is_open=True,
+            "success",
+            True,
         )
-
-        return cell_props, mask_data, summary_content, visualization, cropped_images, status
 
     except Exception as e:
         print(f"Error processing image: {e!s}")
 
-        # Error status
-        error_status = dbc.Alert(f"Error processing image: {e!s}", color="danger", dismissable=True, is_open=True)
-
-        return None, None, html.P(f"Error processing image: {e!s}"), dash.no_update, None, error_status
+        return (
+            None,
+            None,
+            html.P(f"Error processing image: {e!s}"),
+            dash.no_update,
+            None,
+            # Status alert
+            f"Error processing image: {e!s}",
+            "danger",
+            True,
+        )
 
 
 # Callback to show cell details when clicked
@@ -1506,18 +1544,6 @@ def display_selected_cell(click_data, cell_data, encoded_image, mask_data, img_h
         print(f"Error in display_selected_cell: {e!s}")
         print(traceback_str)
         return html.Div(), html.P(f"Error: {e!s}", className="text-danger")
-
-
-# Callback to update status after actions complete - Fixed unused arguments (ARG001)
-@app.callback(
-    Output("status-alert", "children", allow_duplicate=True),
-    [Input("cell-data-store", "data"), Input("selected-cell-details", "children")],
-    prevent_initial_call=True,
-)
-def clear_status_after_action(_cell_data, _cell_details):
-    # This callback will fire after major actions complete
-    # We return None to clear any previous status messages
-    return None
 
 
 def main():
