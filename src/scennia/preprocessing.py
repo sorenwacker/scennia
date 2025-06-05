@@ -94,10 +94,10 @@ class CellPreprocessor:
             density = float(control_match.group(1))
             return treatment_type, concentration, density
 
-        # Check for lactase
+        # Check for lactate
         lac_match = self.treatment_patterns["lac"].search(folder_name)
         if lac_match:
-            treatment_type = "lactase"
+            treatment_type = "lactate"
             concentration = float(lac_match.group(1))
             density = float(lac_match.group(2))
             return treatment_type, concentration, density
@@ -115,7 +115,7 @@ class CellPreprocessor:
         if "Control" in folder_name:
             treatment_type = "control"
         elif "Lac" in folder_name:
-            treatment_type = "lactase"
+            treatment_type = "lactate"
             # Try to extract number after Lac
             lac_num = re.search(r"Lac(\d+)", folder_name)
             if lac_num:
