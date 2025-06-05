@@ -9,13 +9,14 @@ from io import BytesIO
 
 import dash
 import dash_bootstrap_components as dbc
+import diskcache
 import numpy as np
 import onnxruntime as ort
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from cellpose import models
-from dash import dcc, html
+from dash import DiskcacheManager, dcc, html
 from dash.dependencies import ClientsideFunction, Input, Output, State
 from PIL import Image
 from skimage.measure import regionprops
@@ -27,6 +28,9 @@ CACHE_DIR = "cache"
 CROPPED_CACHE_DIR = os.path.join(CACHE_DIR, "cropped")
 os.makedirs(CACHE_DIR, exist_ok=True)
 os.makedirs(CROPPED_CACHE_DIR, exist_ok=True)
+
+# Diskcache for non-production apps when developing locally
+background_callback_manager = DiskcacheManager(diskcache.Cache("./cache"))
 
 
 class ModelManager:
@@ -871,6 +875,11 @@ def display_uploaded_image(contents, filename):
     ],
     Input("process-button", "n_clicks"),
     [State("processed-image-store", "data"), State("image-hash-store", "data"), State("show-annotations", "value")],
+    background=True,
+    manager=background_callback_manager,
+    running=[
+        (Output("process-button", "disabled"), True, False),  # Disable process button while processing.
+    ],
     prevent_initial_call=True,
 )
 def process_image(n_clicks, encoded_image, img_hash, show_annotations):

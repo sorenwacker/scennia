@@ -9,7 +9,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
   "cellpose~=4.0.3",
-  "dash~=3.0.4",
+  "dash[diskcache]~=3.0.4",
   "dash-bootstrap-components~=2.0.2",
   "gradio~=5.29.1",
   "ipykernel~=6.29.5",
