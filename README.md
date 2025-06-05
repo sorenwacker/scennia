@@ -16,7 +16,6 @@ Code for SCENNIA project.
 
 ## Installation
 
-
 1. Install [uv](https://docs.astral.sh/uv/):
 
 2. Install the dependencies, including the dev dependencies
@@ -39,22 +38,42 @@ This will set up pre-commit to run the checks automatically on your files before
 
   **Remember that if the pre-commit checks fail, you can always commit by skipping the checks with `git commit --no-verify`**
 
-## Running the main script
+## Running the scripts
 
-Execute the main script with
+Run the web application:
 
 ```bash
-uv run main_script
+uv run src/scennia/app.py
+```
+
+Run preprocessing, which segments and crops images:
+
+```bash
+uv run src/scennia/preprocessing.py --data_dir ~/lactate/ --output_dir ~/lactate-processed/ --gpu
+```
+
+Train the model:
+
+```bash
+uv run src/scennia/train_model.py --csv_path ~/lactate-processed/dataset.csv
+```
+
+For information about training parameters:
+
+```bash
+uv run src/scennia/train_model.py --help
 ```
 
 ## Adding dependencies
 
-
 Add dependencies by running
+
 ```bash
 uv add numpy
 ```
+
 if you want to install torch with CUDA support, you can do it via:
+
 ```bash
 uv add torch==2.4.1+cu121 torchaudio==2.4.1+cu121 torchvision==0.19.1+cu121 --extra-index-url https://download.pytorch.org/whl/cu121
 ```
@@ -123,7 +142,6 @@ print(f"scennia version is { __version__ }")
 
 ## Publishing the package
 
-
 If you're ready to publish your package to [PyPI](https://pypi.org/) (i.e. you want to be able to run `pip install my-package-name` from anywhere), follow the [uv instructions](https://docs.astral.sh/uv/guides/publish/).
 In short, they boil down to running:
 
@@ -140,4 +158,5 @@ In short, they boil down to running:
     ```
 
 ## License
+
 Distributed under the terms of the [No license (others may not use, share or modify the code) license](LICENSE).
