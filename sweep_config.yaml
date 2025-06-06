@@ -13,7 +13,7 @@ parameters:
     value: /shared-data/scennia/lactate-processed/dataset.csv
 
   model_name:
-    values: [resnet18, resnet50, efficientnet_b0, efficientnet_b1, vit_b_16]
+    values: [resnet18, resnet50, efficientnet_b0, efficientnet_b1]
 
   batch_size:
     values: [16, 32, 64]
