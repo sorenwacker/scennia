@@ -2,6 +2,7 @@ site_name: Documentation
 
 nav:
   - Home: index.md
+  - Model train pipeline: train_model.md
 
 theme: material
 
