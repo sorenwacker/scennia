@@ -207,7 +207,7 @@ class CellDataModule(L.LightningDataModule):
         val_df = df[df["source_image"].isin(val_sources)].copy()
         test_df = df[df["source_image"].isin(test_sources)].copy()
 
-        # Create datasets with enhanced augmentation for training
+        # Create datasets with augmentation for training
         self.train_dataset = CellDataset(train_df, self.train_transforms, self.csv_dir)
         self.val_dataset = CellDataset(val_df, self.val_transforms, self.csv_dir)
         self.test_dataset = CellDataset(test_df, self.val_transforms, self.csv_dir)

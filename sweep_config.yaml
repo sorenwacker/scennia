@@ -2,6 +2,7 @@
 # Configuration for Weights & Biases hyperparameter sweep
 
 program: ./src/scennia/train_model.py
+project: scennia
 method: bayes  # or 'grid', 'random'
 
 metric:
