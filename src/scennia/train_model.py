@@ -113,13 +113,14 @@ class AspectRatioResize:
 
 
 class CellDataModule(L.LightningDataModule):
-    def __init__(self, csv_path, img_size=224, batch_size=32):
+    def __init__(self, csv_path, img_size=224, batch_size=32, use_class_weights=False):
         super().__init__()
         self.csv_path = csv_path
         # Get parent directory of CSV file (one level up from processed/)
         self.csv_dir = os.path.dirname(os.path.dirname(os.path.abspath(csv_path)))
         self.img_size = img_size
         self.batch_size = batch_size
+        self.use_class_weights = use_class_weights
         self._setup_done = False
 
         # Transforms
@@ -227,9 +228,14 @@ class CellDataModule(L.LightningDataModule):
             print(f"  Total cells: {len(split_df)}")
 
         # Calculate class weights based on training data
-        class_weights = compute_class_weight("balanced", classes=np.unique(train_df["label"]), y=train_df["label"])
-        self.class_weights = torch.FloatTensor(class_weights)
-        print(f"\nClass weights: {dict(zip(self.class_names, class_weights, strict=False))}")
+        if not self.use_class_weights:
+            self.class_weights = None
+            print("\nClass weights disabled")
+        else:
+            # Calculate class weights based on training data
+            class_weights = compute_class_weight("balanced", classes=np.unique(train_df["label"]), y=train_df["label"])
+            self.class_weights = torch.FloatTensor(class_weights)
+            print(f"\nClass weights: {dict(zip(self.class_names, class_weights, strict=False))}")
 
         self._setup_done = True
 
@@ -601,13 +607,18 @@ def train_model(
     min_delta=0.001,
     project_name="cell-classification",
     run_name=None,
+    unfreeze_epochs=0,
+    unfreeze_lr_reduction=1.0,
+    use_class_weights=False,
 ):
     """Train a cell classification model using PyTorch Lightning"""
 
     start_time = time.time()  # Track total training time
 
     # Create data module
-    data_module = CellDataModule(csv_path=csv_path, img_size=img_size, batch_size=batch_size)
+    data_module = CellDataModule(
+        csv_path=csv_path, img_size=img_size, batch_size=batch_size, use_class_weights=use_class_weights
+    )
 
     # Setup data (this creates the train/val/test splits)
     data_module.setup()
@@ -635,7 +646,7 @@ def train_model(
 
     # Create run name if not provided
     if run_name is None:
-        run_name = f"{model_name}_{'pretrained' if use_pretrained else 'scratch'}_wd{weight_decay}"
+        run_name = f"{model_name}_{'pretrained' if use_pretrained else 'scratch'}"
 
     # Wandb Logger
     logger = WandbLogger(project=project_name, name=run_name, save_dir="logs")
@@ -669,14 +680,23 @@ def train_model(
         verbose=True,
     )
 
-    unfreeze_callback = ProgressiveUnfreezing(freeze_epochs=0, lr_reduction=1.0)
+    callbacks = [
+        checkpoint_callback,
+        early_stopping_loss,
+        early_stopping_f1,
+    ]
+
+    # Progressive unfreezing callback
+    if unfreeze_epochs > 0:
+        unfreeze_callback = ProgressiveUnfreezing(freeze_epochs=unfreeze_epochs, lr_reduction=unfreeze_lr_reduction)
+        callbacks.append(unfreeze_callback)
 
     # Trainer
     trainer = L.Trainer(
         max_epochs=max_epochs,
         accelerator="gpu" if gpus > 0 else "cpu",
         devices=gpus if gpus > 0 else 1,
-        callbacks=[checkpoint_callback, early_stopping_loss, early_stopping_f1, unfreeze_callback],
+        callbacks=callbacks,
         logger=logger,
         deterministic=True,
     )
@@ -776,6 +796,24 @@ def main():
         "--weight_decay", type=float, default=1e-4, help="Weight decay for L2 regularization (default: 1e-4)"
     )
 
+    # Progressive unfreezing parameters
+    parser.add_argument(
+        "--unfreeze_epochs",
+        type=int,
+        default=0,
+        help="Number of epochs to freeze the backbone before unfreezing (default: 0, no unfreezing)",
+    )
+    parser.add_argument(
+        "--unfreeze_lr_reduction",
+        type=float,
+        default=1.0,
+        help="Factor to reduce learning rate when unfreezing backbone (default: 1.0, no reduction)",
+    )
+
+    # Class weights
+    ## Don't change this to action store true, it will break the sweeps
+    parser.add_argument("--use_class_weights", type=bool, default=False, help="Enable class weight balancing")
+
     # Wandb parameters
     parser.add_argument("--project_name", type=str, default="cell-classification", help="Wandb project name")
     parser.add_argument("--run_name", type=str, default=None, help="Wandb run name")
@@ -798,6 +836,9 @@ def main():
         project_name=args.project_name,
         run_name=args.run_name,
         learning_rate=args.learning_rate,
+        unfreeze_epochs=args.unfreeze_epochs,
+        unfreeze_lr_reduction=args.unfreeze_lr_reduction,
+        use_class_weights=args.use_class_weights,
     )
 
     print(f"\nTraining completed! ONNX model saved at: {onnx_path}")
