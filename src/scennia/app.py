@@ -29,9 +29,6 @@ CROPPED_CACHE_DIR = os.path.join(CACHE_DIR, "cropped")
 os.makedirs(CACHE_DIR, exist_ok=True)
 os.makedirs(CROPPED_CACHE_DIR, exist_ok=True)
 
-# Diskcache for non-production apps when developing locally
-background_callback_manager = DiskcacheManager(diskcache.Cache("./cache"))
-
 
 class ModelManager:
     """Manages ONNX model loading and classification without global variables"""
@@ -189,7 +186,15 @@ def classify_cell_crop(cell_crop_pil):
     return model_manager.classify_cell_crop(cell_crop_pil)
 
 
-app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP], suppress_callback_exceptions=True)
+# Diskcache for non-production apps when developing locally
+background_callback_manager = DiskcacheManager(diskcache.Cache("./cache"))
+
+app = dash.Dash(
+    __name__,
+    external_stylesheets=[dbc.themes.BOOTSTRAP],
+    background_callback_manager=background_callback_manager,
+    suppress_callback_exceptions=True,
+)
 
 # Define the client-side callback for toggling annotations
 app.clientside_callback(
@@ -270,8 +275,8 @@ app.layout = html.Div(
                                         dbc.CardBody(
                                             [
                                                 dcc.Upload(
+                                                    html.Div(["Drag and Drop or ", html.A("Select an Image")]),
                                                     id="upload-image",
-                                                    children=html.Div(["Drag and Drop or ", html.A("Select an Image")]),
                                                     style={
                                                         "width": "100%",
                                                         "height": "60px",
@@ -292,6 +297,7 @@ app.layout = html.Div(
                                                     id="process-button",
                                                     color="primary",
                                                     className="mt-3 w-100",
+                                                    disabled=True,
                                                 ),
                                             ]
                                         ),
@@ -305,19 +311,21 @@ app.layout = html.Div(
                                             [
                                                 # Add loading spinner for cell image
                                                 dcc.Loading(
+                                                    html.Div(id="selected-cell-image", className="mb-3"),
                                                     id="loading-cell-image",
                                                     type="circle",
-                                                    children=html.Div(id="selected-cell-image", className="mb-3"),
+                                                    overlay_style={
+                                                        "visibility": "visible",
+                                                        "filter": "blur(3px) opacity(25%)",
+                                                    },
                                                 ),
-                                                # Add loading spinner for cell details
+                                                # Cell details
                                                 html.Div(
+                                                    html.P(
+                                                        "Process an image and then click on a cell to view details",
+                                                        className="text-muted",
+                                                    ),
                                                     id="selected-cell-details",
-                                                    children=[
-                                                        html.P(
-                                                            "Process an image and then click on a cell to view details",
-                                                            className="text-muted",
-                                                        )
-                                                    ],
                                                 ),
                                             ]
                                         ),
@@ -350,19 +358,11 @@ app.layout = html.Div(
                                             class_name="d-flex justify-content-between",
                                         ),
                                         dbc.CardBody(
-                                            [
-                                                # This div will contain our visualization
-                                                html.Div(
-                                                    id="visualization-container",
-                                                    children=[
-                                                        dcc.Loading(
-                                                            id="loading-visualization",
-                                                            type="circle",
-                                                            children=html.Div(id="visualization-output"),
-                                                        )
-                                                    ],
-                                                )
-                                            ]
+                                            dcc.Loading(
+                                                id="loading-visualization",
+                                                type="circle",
+                                                children=html.Div(id="visualization-output"),
+                                            )
                                         ),
                                     ]
                                 ),
@@ -372,14 +372,12 @@ app.layout = html.Div(
                                         dbc.CardHeader("Summary"),
                                         dbc.CardBody(
                                             dcc.Loading(
+                                                html.Div(
+                                                    html.P("Upload an image and it will be displayed immediately"),
+                                                    id="summary-panel",
+                                                ),
                                                 id="loading-summary",
                                                 type="circle",
-                                                children=html.Div(
-                                                    id="summary-panel",
-                                                    children=[
-                                                        html.P("Upload an image and it will be displayed immediately")
-                                                    ],
-                                                ),
                                             )
                                         ),
                                     ],
@@ -756,6 +754,11 @@ def create_cell_crop(encoded_image, cell, mask_data, padding=10):
     ],
     Input("upload-image", "contents"),
     State("upload-image", "filename"),
+    background=True,
+    running=[  # Disable upload and process while processing.
+        (Output("upload-image", "disabled"), True, False),
+        (Output("process-button", "disabled"), True, False),
+    ],
     prevent_initial_call=True,
 )
 def display_uploaded_image(contents, filename):
@@ -876,9 +879,9 @@ def display_uploaded_image(contents, filename):
     Input("process-button", "n_clicks"),
     [State("processed-image-store", "data"), State("image-hash-store", "data"), State("show-annotations", "value")],
     background=True,
-    manager=background_callback_manager,
-    running=[
-        (Output("process-button", "disabled"), True, False),  # Disable process button while processing.
+    running=[  # Disable upload and process while processing.
+        (Output("upload-image", "disabled"), True, False),
+        (Output("process-button", "disabled"), True, False),
     ],
     prevent_initial_call=True,
 )
