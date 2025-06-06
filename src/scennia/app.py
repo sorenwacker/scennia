@@ -21,11 +21,7 @@ from dash.dependencies import ClientsideFunction, Input, Output, State
 from PIL import Image
 from skimage.measure import regionprops
 from skimage.segmentation import find_boundaries
-from torch import multiprocessing
 from torchvision import transforms
-
-# Set torch start method
-multiprocessing.set_start_method("spawn")
 
 # Simple file-based cache system
 CACHE_DIR = "cache"
@@ -774,7 +770,7 @@ def create_cell_crop(encoded_image, cell, mask_data, padding=10):
     ],
     Input("upload-image", "contents"),
     State("upload-image", "filename"),
-    background=True,
+    background=False,
     running=[  # Disable upload and process while processing.
         (Output("upload-image", "disabled"), True, False),
         (Output("process-button", "disabled"), True, False),
@@ -863,7 +859,7 @@ def display_uploaded_image(contents, filename):
     ],
     Input("process-button", "n_clicks"),
     [State("processed-image-store", "data"), State("image-hash-store", "data"), State("show-annotations", "value")],
-    background=True,
+    background=False,
     running=[  # Disable upload and process while processing.
         (Output("upload-image", "disabled"), True, False),
         (Output("process-button", "disabled"), True, False),
