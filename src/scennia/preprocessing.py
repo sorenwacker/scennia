@@ -378,7 +378,7 @@ class CellPreprocessor:
             for f in missing_files[:5]:
                 print(f"  {f}")
         else:
-            print("\n✅ All cell image paths verified!")
+            print("\n All cell image paths verified!")
 
         return df
 

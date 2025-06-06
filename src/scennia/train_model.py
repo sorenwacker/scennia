@@ -446,7 +446,12 @@ class CellClassifier(L.LightningModule):
     def test_step(self, batch, batch_idx):  # noqa: ARG002
         x, y = batch
         logits = self.forward(x)
-        loss = F.cross_entropy(logits, y)
+
+        # If class weights are defined, use them in test set as well
+        if self.class_weights is not None:
+            loss = F.cross_entropy(logits, y, weight=self.class_weights.to(self.device))
+        else:
+            loss = F.cross_entropy(logits, y)
 
         # Calculate metrics
         preds = torch.argmax(logits, dim=1)
