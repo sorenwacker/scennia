@@ -143,7 +143,7 @@ class CellPreprocessor:
             limit (int, optional): Limit number of images to process (for testing)
 
         Returns:
-            dict: Summary of processing results
+            (dict): Summary of processing results
         """
         folder_name = os.path.basename(folder_path)
         print(f"Processing folder: {folder_name}")
@@ -218,7 +218,7 @@ class CellPreprocessor:
             density (float): Cell density
 
         Returns:
-            dict: Processing results for this image
+            (dict): Processing results for this image
         """
         try:
             # Load the image
@@ -329,7 +329,7 @@ class CellPreprocessor:
             output_file (str): Output CSV file path
 
         Returns:
-            pd.DataFrame: Consolidated dataset
+            (pd.DataFrame): Consolidated dataset
         """
         print("Creating training dataset CSV...")
 
@@ -390,7 +390,7 @@ class CellPreprocessor:
             limit_per_folder (int, optional): Limit images per folder (for testing)
 
         Returns:
-            list: Summary of processing results
+            (list): Summary of processing results
         """
         # Get all folders
         folders = []
