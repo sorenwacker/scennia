@@ -19,7 +19,7 @@ parameters:
     values: [16, 32, 64]
 
   img_size:
-    values: [64, 128, 224, 256]
+    values: [64, 128, 224]
 
   learning_rate:
     distribution: log_uniform_values
