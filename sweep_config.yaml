@@ -6,7 +6,7 @@ project: scennia
 method: bayes  # or 'grid', 'random'
 
 metric:
-  name: test_f1
+  name: val_f1
   goal: maximize
 
 parameters:
@@ -17,40 +17,28 @@ parameters:
     values: [resnet18, resnet50, efficientnet_b0, efficientnet_b1]
 
   batch_size:
-    values: [16, 32, 64]
+    values: [32, 64]
 
   img_size:
     values: [64, 128, 224]
 
   learning_rate:
-    distribution: log_uniform_values
-    min: 1e-5
-    max: 1e-2
+    values: [3e-3, 1e-3, 5e-4]
 
   weight_decay:
-    distribution: log_uniform_values
-    min: 1e-6
-    max: 1e-2
+    values: [1e-6, 1e-5, 1e-4, 1e-3, 1e-2]
 
   unfreeze_epochs:
-    values: [0, 5, 10, 15]
+    values: [0, 3]
 
   unfreeze_lr_reduction:
-    distribution: uniform
-    min: 0.1
-    max: 1.0
+    values: [1.0]
 
   use_class_weights:
     values: [true, false]
 
-  loss_patience:
-    values: [5, 7, 10]
-
-  f1_patience:
-    values: [5, 7, 10]
-
   max_epochs:
-    value: 20  # Fixed for sweep
+    value: 50
 
 # Early termination
 early_terminate:
