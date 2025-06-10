@@ -256,6 +256,60 @@ app.index_string = """
 # Keep GPU enabled as requested
 model = models.CellposeModel(gpu=True)
 
+
+def update_full_figure_layout(fig: go.Figure, width, height, has_cell_data=False, show_annotations=True):
+    # Update layout - we need fixed pixel coordinates, not aspect ratio preservation
+    fig.update_layout(
+        autosize=True,
+        height=600,
+        margin={"l": 0, "r": 0, "t": 0, "b": 0},
+        showlegend=False,
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
+        clickmode="event",
+        # Add helpful annotation
+        annotations=[
+            {
+                "text": "Click on any colored circle to view cell details",
+                "x": 0.5,
+                "y": 0.01,
+                "xref": "paper",
+                "yref": "paper",
+                "showarrow": False,
+                "font": {"size": 14},
+                "bgcolor": "rgba(255,255,255,0.7)",
+                "bordercolor": "gray",
+                "borderwidth": 1,
+                "borderpad": 4,
+                "visible": bool(has_cell_data and show_annotations),
+            }
+        ]
+        if has_cell_data
+        else [],
+    )
+
+    # Update axes
+    fig.update_xaxes(
+        range=[0, width],
+        showticklabels=False,
+        showgrid=False,
+        zeroline=False,
+        visible=False,
+        constrain="domain",  # This helps maintain image dimensions
+    )
+    fig.update_yaxes(
+        range=[height, 0],  # Reverse y-axis to match image coordinates
+        showticklabels=False,
+        showgrid=False,
+        zeroline=False,
+        visible=False,
+        scaleanchor="x",  # Preserve aspect ratio
+        scaleratio=1.0,  # 1:1 aspect ratio
+    )
+
+    return fig
+
+
 # App layout
 app.layout = html.Div(
     [
@@ -359,9 +413,18 @@ app.layout = html.Div(
                                         ),
                                         dbc.CardBody(
                                             dcc.Loading(
+                                                dcc.Graph(
+                                                    id="cell-visualization-graph",
+                                                    figure=update_full_figure_layout(go.Figure(), 0, 0),
+                                                    config={"displayModeBar": False, "staticPlot": False},
+                                                    style={"width": "100%", "height": "100%"},
+                                                ),
                                                 id="loading-visualization",
                                                 type="circle",
-                                                children=html.Div(id="visualization-output"),
+                                                overlay_style={
+                                                    "visibility": "visible",
+                                                    "filter": "blur(3px) opacity(25%)",
+                                                },
                                             )
                                         ),
                                     ]
@@ -663,54 +726,7 @@ def create_complete_figure(encoded_image, cell_data=None, mask_data=None, show_a
                     )
                 )
 
-        # Update layout - we need fixed pixel coordinates, not aspect ratio preservation
-        fig.update_layout(
-            autosize=True,
-            height=600,
-            margin={"l": 0, "r": 0, "t": 0, "b": 0},
-            showlegend=False,
-            plot_bgcolor="rgba(0,0,0,0)",
-            paper_bgcolor="rgba(0,0,0,0)",
-            clickmode="event",
-            # Add helpful annotation
-            annotations=[
-                {
-                    "text": "Click on any colored circle to view cell details",
-                    "x": 0.5,
-                    "y": 0.01,
-                    "xref": "paper",
-                    "yref": "paper",
-                    "showarrow": False,
-                    "font": {"size": 14},
-                    "bgcolor": "rgba(255,255,255,0.7)",
-                    "bordercolor": "gray",
-                    "borderwidth": 1,
-                    "borderpad": 4,
-                    "visible": bool(cell_data and show_annotations),
-                }
-            ]
-            if cell_data
-            else [],
-        )
-
-        # Update axes
-        fig.update_xaxes(
-            range=[0, width],
-            showticklabels=False,
-            showgrid=False,
-            zeroline=False,
-            visible=False,
-            constrain="domain",  # This helps maintain image dimensions
-        )
-        fig.update_yaxes(
-            range=[height, 0],  # Reverse y-axis to match image coordinates
-            showticklabels=False,
-            showgrid=False,
-            zeroline=False,
-            visible=False,
-            scaleanchor="x",  # Preserve aspect ratio
-            scaleratio=1.0,  # 1:1 aspect ratio
-        )
+        update_full_figure_layout(fig, width, height, cell_data is not None, show_annotations)
 
         return fig
 
@@ -744,7 +760,7 @@ def create_cell_crop(encoded_image, cell, mask_data, padding=10):
 # Display uploaded image
 @app.callback(
     [
-        Output("visualization-output", "children"),
+        Output("cell-visualization-graph", "figure", allow_duplicate=True),
         Output("upload-output", "children"),
         Output("processed-image-store", "data"),
         Output("image-hash-store", "data"),
@@ -754,7 +770,7 @@ def create_cell_crop(encoded_image, cell, mask_data, padding=10):
     ],
     Input("upload-image", "contents"),
     State("upload-image", "filename"),
-    background=True,
+    background=False,
     running=[  # Disable upload and process while processing.
         (Output("upload-image", "disabled"), True, False),
         (Output("process-button", "disabled"), True, False),
@@ -801,45 +817,10 @@ def display_uploaded_image(contents, filename):
             }
         )
 
-        # Update layout
-        fig.update_layout(
-            autosize=True,
-            height=600,
-            margin={"l": 0, "r": 0, "t": 0, "b": 0},
-            showlegend=False,
-            plot_bgcolor="rgba(0,0,0,0)",
-            paper_bgcolor="rgba(0,0,0,0)",
-        )
-
-        # Update axes
-        fig.update_xaxes(
-            range=[0, width],
-            showticklabels=False,
-            showgrid=False,
-            zeroline=False,
-            visible=False,
-            constrain="domain",  # This helps maintain image dimensions
-        )
-        fig.update_yaxes(
-            range=[height, 0],  # Reverse y-axis to match image coordinates
-            showticklabels=False,
-            showgrid=False,
-            zeroline=False,
-            visible=False,
-            scaleanchor="x",  # Preserve aspect ratio
-            scaleratio=1.0,  # 1:1 aspect ratio
-        )
-
-        # Create the graph object
-        visualization = dcc.Graph(
-            id="cell-visualization-graph",
-            figure=fig,
-            config={"displayModeBar": False, "staticPlot": False},
-            style={"width": "100%", "height": "100%"},
-        )
+        update_full_figure_layout(fig, width, height, False, False)
 
         return (
-            visualization,
+            fig,
             html.Div(f"Uploaded: {filename}"),
             encoded_image,
             img_hash,
@@ -870,7 +851,7 @@ def display_uploaded_image(contents, filename):
         Output("cell-data-store", "data"),
         Output("mask-data-store", "data"),
         Output("summary-panel", "children"),
-        Output("visualization-output", "children", allow_duplicate=True),
+        Output("cell-visualization-graph", "figure", allow_duplicate=True),
         Output("cropped-images-store", "data"),
         Output("image-process-alert", "children"),
         Output("image-process-alert", "color"),
@@ -878,7 +859,7 @@ def display_uploaded_image(contents, filename):
     ],
     Input("process-button", "n_clicks"),
     [State("processed-image-store", "data"), State("image-hash-store", "data"), State("show-annotations", "value")],
-    background=True,
+    background=False,
     running=[  # Disable upload and process while processing.
         (Output("upload-image", "disabled"), True, False),
         (Output("process-button", "disabled"), True, False),
@@ -1026,19 +1007,11 @@ def process_image(n_clicks, encoded_image, img_hash, show_annotations):
         # Create the figure with cell data
         fig = create_complete_figure(encoded_image, cell_data, mask_data, show_annotations)
 
-        # Create the graph object
-        visualization = dcc.Graph(
-            id="cell-visualization-graph",
-            figure=fig,
-            config={"displayModeBar": False, "staticPlot": False},
-            style={"width": "100%", "height": "100%"},
-        )
-
         return (
             cell_data,
             mask_data,
             summary_content,
-            visualization,
+            fig,
             cropped_images,
             # Status alert
             f"Processed image from cache: {len(cell_data)} cells detected in {processing_time:.2f} seconds",
@@ -1274,19 +1247,11 @@ def process_image(n_clicks, encoded_image, img_hash, show_annotations):
         # Create the figure with cell data
         fig = create_complete_figure(encoded_image, cell_props, mask_data, show_annotations)
 
-        # Create the graph object
-        visualization = dcc.Graph(
-            id="cell-visualization-graph",
-            figure=fig,
-            config={"displayModeBar": False, "staticPlot": False},
-            style={"width": "100%", "height": "100%"},
-        )
-
         return (
             cell_props,
             mask_data,
             summary_content,
-            visualization,
+            fig,
             cropped_images,
             # Status alert
             f"Processed image: {len(cell_props)} cells detected in {total_processing_time:.2f} seconds",
