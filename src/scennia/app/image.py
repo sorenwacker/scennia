@@ -61,11 +61,11 @@ def numpy_to_b64(img_array):
 
     # Save to bytes buffer
     buffer = BytesIO()
-    img.save(buffer, format="PNG")
+    img.save(buffer, format="WebP")
     buffer.seek(0)
 
     # Convert to base64
-    return f"data:image/png;base64,{base64.b64encode(buffer.read()).decode()}"
+    return f"data:image/webp;base64,{base64.b64encode(buffer.read()).decode()}"
 
 
 # Calculate image hash for caching
@@ -110,8 +110,8 @@ def save_to_cache(img_hash, cell_data, encoded_image, mask_data, predicted_prope
         # Save cropped images separately - Fixed loop variable overwriting (PLW2901)
         if cropped_images:
             for cell_id, img_data in cropped_images.items():
-                crop_file = os.path.join(CROPPED_CACHE_DIR, f"{img_hash}_{cell_id}.png")
-                # Save as PNG file
+                crop_file = os.path.join(CROPPED_CACHE_DIR, f"{img_hash}_{cell_id}.webp")
+                # Save as WebP file
                 with open(crop_file, "wb") as f:
                     # Remove data URL prefix if present - Fixed variable overwriting
                     processed_data = img_data.split(",", 1)[1] if "," in img_data else img_data
@@ -125,12 +125,12 @@ def save_to_cache(img_hash, cell_data, encoded_image, mask_data, predicted_prope
 
 # Get cropped image from cache
 def get_cropped_image(img_hash, cell_id):
-    crop_file = os.path.join(CROPPED_CACHE_DIR, f"{img_hash}_{cell_id}.png")
+    crop_file = os.path.join(CROPPED_CACHE_DIR, f"{img_hash}_{cell_id}.webp")
     if os.path.exists(crop_file):
         try:
             with open(crop_file, "rb") as f:
                 img_data = base64.b64encode(f.read()).decode()
-                return f"data:image/png;base64,{img_data}"
+                return f"data:image/webp;base64,{img_data}"
         except Exception as e:
             print(f"Error reading cropped image from cache: {e!s}")
     return None
