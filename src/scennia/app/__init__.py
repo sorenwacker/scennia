@@ -268,11 +268,7 @@ app.layout = html.Div(
             fluid=True,
         ),
         # Hidden data stores
-        dcc.Store(id="cell-data-store"),
-        dcc.Store(id="processed-image-store"),
-        dcc.Store(id="mask-data-store"),
         dcc.Store(id="image-hash-store"),
-        dcc.Store(id="cropped-images-store"),  # Store for cropped images
     ]
 )
 
@@ -305,12 +301,18 @@ def display_model_status(_):
     )
 
 
+# Server-side stores
+ENCODED_IMAGE_STORE = {}
+CELL_DATA_STORE = {}
+MASK_DATA_STORE = {}
+CROPPED_IMAGE_STORE = {}
+
+
 # Display uploaded image
 @app.callback(
     [
         Output("cell-visualization-graph", "figure", allow_duplicate=True),
         Output("upload-output", "children"),
-        Output("processed-image-store", "data"),
         Output("image-hash-store", "data"),
         Output("image-load-alert", "children"),
         Output("image-load-alert", "color"),
@@ -367,10 +369,11 @@ def display_uploaded_image(contents, filename):
 
         update_full_figure_layout(fig, width, height, False, False)
 
+        ENCODED_IMAGE_STORE[img_hash] = encoded_image
+
         return (
             fig,
             html.Div(f"Uploaded: {filename}"),
-            encoded_image,
             img_hash,
             # Status alert
             f"Image loaded successfully: {filename}",
@@ -396,17 +399,17 @@ def display_uploaded_image(contents, filename):
 # Process image and check cache
 @app.callback(
     [
-        Output("cell-data-store", "data"),
-        Output("mask-data-store", "data"),
         Output("summary-panel", "children"),
         Output("cell-visualization-graph", "figure", allow_duplicate=True),
-        Output("cropped-images-store", "data"),
         Output("image-process-alert", "children"),
         Output("image-process-alert", "color"),
         Output("image-process-alert", "is_open"),
     ],
     Input("process-button", "n_clicks"),
-    [State("processed-image-store", "data"), State("image-hash-store", "data"), State("show-annotations", "value")],
+    [
+        State("image-hash-store", "data"),
+        State("show-annotations", "value"),
+    ],
     background=False,
     running=[  # Disable upload and process while processing.
         (Output("upload-image", "disabled"), True, False),
@@ -414,9 +417,11 @@ def display_uploaded_image(contents, filename):
     ],
     prevent_initial_call=True,
 )
-def process_image(n_clicks, encoded_image, img_hash, show_annotations):
-    if n_clicks is None or encoded_image is None or img_hash is None:
+def process_image(n_clicks, img_hash, show_annotations):
+    if n_clicks is None or img_hash is None or img_hash not in ENCODED_IMAGE_STORE:
         return (None, None, html.P("Upload an image and click 'Process Image'"), dash.no_update, None, dash.no_update)
+
+    encoded_image = ENCODED_IMAGE_STORE[img_hash]
 
     start_time = time.time()
 
@@ -555,12 +560,14 @@ def process_image(n_clicks, encoded_image, img_hash, show_annotations):
         # Create the figure with cell data
         fig = create_complete_figure(encoded_image, cell_data, mask_data, show_annotations)
 
+        # Update stores
+        CELL_DATA_STORE[img_hash] = cell_data
+        MASK_DATA_STORE[img_hash] = mask_data
+        CROPPED_IMAGE_STORE[img_hash] = cropped_images
+
         return (
-            cell_data,
-            mask_data,
             summary_content,
             fig,
-            cropped_images,
             # Status alert
             f"Processed image from cache: {len(cell_data)} cells detected in {processing_time:.2f} seconds",
             "info",
@@ -795,12 +802,14 @@ def process_image(n_clicks, encoded_image, img_hash, show_annotations):
         # Create the figure with cell data
         fig = create_complete_figure(encoded_image, cell_props, mask_data, show_annotations)
 
+        # Update stores
+        CELL_DATA_STORE[img_hash] = cell_props
+        MASK_DATA_STORE[img_hash] = mask_data
+        CROPPED_IMAGE_STORE[img_hash] = cropped_images
+
         return (
-            cell_props,
-            mask_data,
             summary_content,
             fig,
-            cropped_images,
             # Status alert
             f"Processed image: {len(cell_props)} cells detected in {total_processing_time:.2f} seconds",
             "success",
@@ -828,17 +837,24 @@ def process_image(n_clicks, encoded_image, img_hash, show_annotations):
     [Output("selected-cell-image", "children"), Output("selected-cell-details", "children")],
     Input("cell-visualization-graph", "clickData"),
     [
-        State("cell-data-store", "data"),
-        State("processed-image-store", "data"),
-        State("mask-data-store", "data"),
         State("image-hash-store", "data"),
-        State("cropped-images-store", "data"),
     ],
     prevent_initial_call=True,
 )
-def display_selected_cell(click_data, cell_data, encoded_image, mask_data, img_hash, cropped_images):
-    if not click_data or not cell_data or not mask_data:
+def display_selected_cell(click_data, img_hash):
+    if (
+        not click_data
+        or img_hash not in ENCODED_IMAGE_STORE
+        or img_hash not in CELL_DATA_STORE
+        or img_hash not in CROPPED_IMAGE_STORE
+        or img_hash not in MASK_DATA_STORE
+    ):
         return html.Div(), html.P("Process an image and then click on a cell to view details", className="text-muted")
+
+    encoded_image = ENCODED_IMAGE_STORE[img_hash]
+    cell_data = CELL_DATA_STORE[img_hash]
+    cropped_images = CROPPED_IMAGE_STORE[img_hash]
+    mask_data = MASK_DATA_STORE[img_hash]
 
     try:
         # Get click coordinates
