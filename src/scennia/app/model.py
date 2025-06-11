@@ -3,6 +3,7 @@ import os
 
 import numpy as np
 import onnxruntime as ort
+from PIL.Image import Image
 from torchvision import transforms
 
 
@@ -59,18 +60,18 @@ class ModelManager:
             print(f"Error loading classification model: {e}")
             return False
 
-    def classify_cell_crop(self, cell_crop_pil):
+    def classify_cell_crop(self, cropped_image: Image):
         """Classify a cell crop using the loaded ONNX model"""
         if self.classification_model is None or self.transform_for_classification is None:
             return {"error": "Classification model not loaded"}
 
         try:
             # Ensure image is RGB
-            if cell_crop_pil.mode != "RGB":
-                cell_crop_pil = cell_crop_pil.convert("RGB")
+            if cropped_image.mode != "RGB":
+                cropped_image = cropped_image.convert("RGB")
 
             # Apply transforms
-            input_tensor = self.transform_for_classification(cell_crop_pil).unsqueeze(0).numpy()
+            input_tensor = self.transform_for_classification(cropped_image).unsqueeze(0).numpy()
 
             # Run inference
             inputs = {self.classification_model.get_inputs()[0].name: input_tensor}
@@ -130,6 +131,6 @@ def load_classification_model(model_path):
     return model_manager.load_model(model_path)
 
 
-def classify_cell_crop(cell_crop_pil):
+def classify_cell_crop(cropped_image: Image):
     """Classify a cell crop using the loaded ONNX model"""
-    return model_manager.classify_cell_crop(cell_crop_pil)
+    return model_manager.classify_cell_crop(cropped_image)

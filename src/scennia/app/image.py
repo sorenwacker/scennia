@@ -3,11 +3,11 @@ import hashlib
 import io
 import json
 import os
-from io import BytesIO
 
 import numpy as np
 import plotly.graph_objects as go
 from PIL import Image
+from PIL.ImageFile import ImageFile
 
 
 def get_concentration_color(concentration):
@@ -37,40 +37,16 @@ def get_concentration_color_plotly(concentration):
     return color_map.get(concentration, "#808080")  # Gray for unknown
 
 
-# Parse uploaded image
-def parse_image(contents):
-    content_type, content_string = contents.split(",")
+# Decode image from base64
+def decode_image(contents: str) -> ImageFile:
+    _, content_string = contents.split(",")
     decoded = base64.b64decode(content_string)
-    return np.array(Image.open(io.BytesIO(decoded)))
-
-
-# Convert numpy array to base64 image
-def numpy_to_b64(img_array):
-    if len(img_array.shape) == 2:
-        # Convert grayscale to RGB
-        img_array = np.stack([img_array] * 3, axis=-1)
-
-    # Normalize if needed
-    if img_array.max() <= 1.0:
-        img_array = (img_array * 255).astype(np.uint8)
-    elif img_array.dtype != np.uint8:
-        img_array = img_array.astype(np.uint8)
-
-    # Convert to PIL Image
-    img = Image.fromarray(img_array)
-
-    # Save to bytes buffer
-    buffer = BytesIO()
-    img.save(buffer, format="WebP")
-    buffer.seek(0)
-
-    # Convert to base64
-    return f"data:image/webp;base64,{base64.b64encode(buffer.read()).decode()}"
+    return Image.open(io.BytesIO(decoded))
 
 
 # Calculate image hash for caching
-def calculate_image_hash(img_array):
-    return hashlib.md5(img_array.tobytes()).hexdigest()
+def calculate_image_hash(image: ImageFile) -> str:
+    return hashlib.md5(image.tobytes()).hexdigest()
 
 
 # Simple file-based cache system
@@ -80,9 +56,29 @@ os.makedirs(CACHE_DIR, exist_ok=True)
 os.makedirs(CROPPED_CACHE_DIR, exist_ok=True)
 
 
+# Get compressed image from cache
+def get_compressed_image_from_cache(image_hash: str) -> ImageFile | None:
+    path = os.path.join(CACHE_DIR, f"{image_hash}.webp")
+    if os.path.exists(path):
+        try:
+            return Image.open(path)
+        except Exception as e:
+            print(f"Error reading compressed image from cache: {e!s}")
+    return None
+
+
+# Save image to cache as original format and compressed format
+def save_image_to_cache(image_hash: str, image: ImageFile):
+    try:
+        image.save(os.path.join(CACHE_DIR, f"{image_hash}.webp"))
+    except Exception as e:
+        print(f"Error saving image to cache: {e!s}")
+        return False
+
+
 # Check if result is in cache
-def get_from_cache(img_hash):
-    cache_file = os.path.join(CACHE_DIR, f"{img_hash}.json")
+def get_processed_from_cache(image_hash: str):
+    cache_file = os.path.join(CACHE_DIR, f"{image_hash}.json")
     if os.path.exists(cache_file):
         try:
             with open(cache_file) as f:
@@ -93,29 +89,25 @@ def get_from_cache(img_hash):
 
 
 # Save results to cache
-def save_to_cache(img_hash, cell_data, encoded_image, mask_data, predicted_properties, cropped_images=None):
+def save_processed_to_cache(
+    img_hash: str, cell_data, mask_data, predicted_properties, cropped_uncompressed_images: dict[str, Image.Image]
+):
     cache_file = os.path.join(CACHE_DIR, f"{img_hash}.json")
     try:
         cache_data = {
             "cell_data": cell_data,
-            "encoded_image": encoded_image,
             "mask_data": mask_data,
             "predicted_properties": predicted_properties,
+            # Don't include images in the main cache file as they can be large
         }
 
-        # Don't include cropped images in the main cache file as they can be large
         with open(cache_file, "w") as f:
             json.dump(cache_data, f)
 
-        # Save cropped images separately - Fixed loop variable overwriting (PLW2901)
-        if cropped_images:
-            for cell_id, img_data in cropped_images.items():
-                crop_file = os.path.join(CROPPED_CACHE_DIR, f"{img_hash}_{cell_id}.webp")
-                # Save as WebP file
-                with open(crop_file, "wb") as f:
-                    # Remove data URL prefix if present - Fixed variable overwriting
-                    processed_data = img_data.split(",", 1)[1] if "," in img_data else img_data
-                    f.write(base64.b64decode(processed_data))
+        # Compress and save cropped images separately - Fixed loop variable overwriting (PLW2901)
+        for cell_id, image in cropped_uncompressed_images.items():
+            path = os.path.join(CROPPED_CACHE_DIR, f"{img_hash}_{cell_id}.webp")
+            image.save(path)
 
         return True
     except Exception as e:
@@ -123,14 +115,12 @@ def save_to_cache(img_hash, cell_data, encoded_image, mask_data, predicted_prope
         return False
 
 
-# Get cropped image from cache
-def get_cropped_image(img_hash, cell_id):
-    crop_file = os.path.join(CROPPED_CACHE_DIR, f"{img_hash}_{cell_id}.webp")
+# Get compressed cropped image from cache
+def get_compressed_cropped_image(image_hash: str, cell_id: str) -> ImageFile | None:
+    crop_file = os.path.join(CROPPED_CACHE_DIR, f"{image_hash}_{cell_id}.webp")
     if os.path.exists(crop_file):
         try:
-            with open(crop_file, "rb") as f:
-                img_data = base64.b64encode(f.read()).decode()
-                return f"data:image/webp;base64,{img_data}"
+            return Image.open(crop_file)
         except Exception as e:
             print(f"Error reading cropped image from cache: {e!s}")
     return None
@@ -190,31 +180,23 @@ def update_full_figure_layout(fig: go.Figure, width, height, has_cell_data=False
 
 
 # Create visualization with all elements
-def create_complete_figure(encoded_image, cell_data=None, mask_data=None, show_annotations=True):
+def create_complete_figure(image: ImageFile, cell_data=None, mask_data=None, show_annotations=True):
     """Create a complete figure with all elements, with annotations visible based on show_annotations"""
 
     try:
-        # Extract image dimensions from encoded image
-        content_type, content_string = encoded_image.split(",")
-        decoded = base64.b64decode(content_string)
-        img = np.array(Image.open(io.BytesIO(decoded)))
-
-        # Get image dimensions
-        height, width = img.shape[:2]
-
         # Create the base figure with the original image
         fig = go.Figure()
 
         # Add the original image as the base layer
         fig.add_layout_image(
             {
-                "source": encoded_image,
+                "source": image,
                 "xref": "x",
                 "yref": "y",
                 "x": 0,
                 "y": 0,
-                "sizex": width,
-                "sizey": height,
+                "sizex": image.width,
+                "sizey": image.height,
                 "sizing": "stretch",  # Use stretch for pixel-perfect mapping
                 "opacity": 1,
                 "layer": "below",
@@ -310,7 +292,7 @@ def create_complete_figure(encoded_image, cell_data=None, mask_data=None, show_a
                     )
                 )
 
-        update_full_figure_layout(fig, width, height, cell_data is not None, show_annotations)
+        update_full_figure_layout(fig, image.width, image.height, cell_data is not None, show_annotations)
 
         return fig
 
@@ -319,8 +301,8 @@ def create_complete_figure(encoded_image, cell_data=None, mask_data=None, show_a
         return None
 
 
-# Create cropped image
-def create_cell_crop(encoded_image, cell, mask_data, padding=10):
+# Create a cell crop, returning an uncompressed cropped image of the cell.
+def crop_cell(image: ImageFile, cell, mask_data, padding=10) -> Image.Image:
     # Get bounding box with padding
     y0, x0, y1, x1 = cell["bbox"]
     padding = 10
@@ -329,13 +311,7 @@ def create_cell_crop(encoded_image, cell, mask_data, padding=10):
     y1 = min(len(mask_data["mask"]), y1 + padding)
     x1 = min(len(mask_data["mask"][0]), x1 + padding)
 
-    # Get the full image
-    content_type, content_string = encoded_image.split(",")
-    decoded = base64.b64decode(content_string)
-    img = np.array(Image.open(io.BytesIO(decoded)))
-
     # Create a cropped version
-    img_cropped = img[y0:y1, x0:x1]
-
-    # Convert to base64
-    return numpy_to_b64(img_cropped)
+    image_array = np.asarray(image)
+    img_cropped = image_array[y0:y1, x0:x1]
+    return Image.fromarray(img_cropped)
