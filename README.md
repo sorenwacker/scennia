@@ -43,25 +43,25 @@ This will set up pre-commit to run the checks automatically on your files before
 Run the web application:
 
 ```bash
-uv run src/scennia/app.py
+uv run scennia_app
 ```
 
 Run preprocessing, which segments and crops images:
 
 ```bash
-uv run src/scennia/preprocessing.py --data_dir ~/lactate/ --output_dir ~/lactate-processed/ --gpu
+uv run scennia_preprocessing --data_dir ~/lactate/ --output_dir ~/lactate-processed/ --gpu
 ```
 
 Train the model:
 
 ```bash
-uv run src/scennia/train_model.py --csv_path ~/lactate-processed/dataset.csv
+uv run scennia_train_model --csv_path ~/lactate-processed/dataset.csv
 ```
 
 For information about training parameters:
 
 ```bash
-uv run src/scennia/train_model.py --help
+uv run scennia_train_model --help
 ```
 
 ## Adding dependencies
