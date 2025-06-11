@@ -180,7 +180,7 @@ def update_full_figure_layout(fig: go.Figure, width, height, has_cell_data=False
 
 
 # Create visualization with all elements
-def create_complete_figure(image: ImageFile, cell_data=None, mask_data=None, show_annotations=True):
+def create_complete_figure(compressed_image: ImageFile, cell_data=None, mask_data=None, show_annotations=True):
     """Create a complete figure with all elements, with annotations visible based on show_annotations"""
 
     try:
@@ -190,13 +190,13 @@ def create_complete_figure(image: ImageFile, cell_data=None, mask_data=None, sho
         # Add the original image as the base layer
         fig.add_layout_image(
             {
-                "source": image,
+                "source": compressed_image,
                 "xref": "x",
                 "yref": "y",
                 "x": 0,
                 "y": 0,
-                "sizex": image.width,
-                "sizey": image.height,
+                "sizex": compressed_image.width,
+                "sizey": compressed_image.height,
                 "sizing": "stretch",  # Use stretch for pixel-perfect mapping
                 "opacity": 1,
                 "layer": "below",
@@ -292,7 +292,9 @@ def create_complete_figure(image: ImageFile, cell_data=None, mask_data=None, sho
                     )
                 )
 
-        update_full_figure_layout(fig, image.width, image.height, cell_data is not None, show_annotations)
+        update_full_figure_layout(
+            fig, compressed_image.width, compressed_image.height, cell_data is not None, show_annotations
+        )
 
         return fig
 

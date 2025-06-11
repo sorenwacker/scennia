@@ -24,6 +24,8 @@ dependencies = [
   "seaborn~=0.13.2",
   "tensorboard~=2.19.0",
   "wandb~=0.19.11",
+  "orjson>=3.10.18",
+  "pillow>=11.2.1",
 ]
 
 [tool.uv]
