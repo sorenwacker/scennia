@@ -10,7 +10,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from dash import DiskcacheManager, dcc, html
-from dash.dependencies import ClientsideFunction, Input, Output, State
+from dash.dependencies import Input, Output, State
 from PIL.Image import Image
 from PIL.ImageFile import ImageFile
 from skimage.measure import regionprops
@@ -44,60 +44,34 @@ app = dash.Dash(
 
 # Define the client-side callback for toggling annotations
 app.clientside_callback(
-    ClientsideFunction(namespace="clientside", function_name="toggleAnnotations"),
+    """
+    function(showAnnotations, figure) {
+        if (!figure || !figure.data) {
+            return window.dash_clientside.no_update;
+        }
+
+        // Create a copy of the figure to avoid modifying the original
+        const newFigure = JSON.parse(JSON.stringify(figure));
+
+        // Set visibility for all traces except the first one (which is the image)
+        for (let i = 1; i < newFigure.data.length; i++) {
+            newFigure.data[i].visible = showAnnotations;
+        }
+
+        // Toggle annotation visibility
+        if (newFigure.layout && newFigure.layout.annotations) {
+            for (let i = 0; i < newFigure.layout.annotations.length; i++) {
+                newFigure.layout.annotations[i].visible = showAnnotations;
+            }
+        }
+
+        return newFigure;
+    }
+    """,
     Output("cell-visualization-graph", "figure"),
     Input("show-annotations", "value"),
     State("cell-visualization-graph", "figure"),
 )
-
-# Add the JavaScript code for the client-side function
-app.index_string = """
-<!DOCTYPE html>
-<html>
-    <head>
-        {%metas%}
-        <title>{%title%}</title>
-        {%favicon%}
-        {%css%}
-        <script>
-            window.dash_clientside = Object.assign({}, window.dash_clientside, {
-                clientside: {
-                    toggleAnnotations: function(showAnnotations, figure) {
-                        if (!figure || !figure.data) {
-                            return window.dash_clientside.no_update;
-                        }
-
-                        // Create a copy of the figure to avoid modifying the original
-                        const newFigure = JSON.parse(JSON.stringify(figure));
-
-                        // Set visibility for all traces except the first one (which is the image)
-                        for (let i = 1; i < newFigure.data.length; i++) {
-                            newFigure.data[i].visible = showAnnotations;
-                        }
-
-                        // Toggle annotation visibility
-                        if (newFigure.layout && newFigure.layout.annotations) {
-                            for (let i = 0; i < newFigure.layout.annotations.length; i++) {
-                                newFigure.layout.annotations[i].visible = showAnnotations;
-                            }
-                        }
-
-                        return newFigure;
-                    }
-                }
-            });
-        </script>
-    </head>
-    <body>
-        {%app_entry%}
-        <footer>
-            {%config%}
-            {%scripts%}
-            {%renderer%}
-        </footer>
-    </body>
-</html>
-"""
 
 
 # App layout
