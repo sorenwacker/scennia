@@ -99,163 +99,205 @@ app.index_string = """
 </html>
 """
 
+
 # App layout
-app.layout = html.Div([
-    dbc.Container(
-        [
-            html.H1("Interactive Cell Analyzer with Lactate Classification", className="my-4 text-center"),
-            # Add model status indicator
-            html.Div(id="model-status", className="mb-3"),
-            dbc.Row([
-                # Left column - Controls and Cell Details
-                dbc.Col(
-                    [
-                        dbc.Card([
-                            dbc.CardHeader("Upload"),
-                            dbc.CardBody([
-                                dcc.Upload(
-                                    html.Div(["Drag and Drop or ", html.A("Select an Image")]),
-                                    id="upload-image",
-                                    style={
-                                        "width": "100%",
-                                        "height": "60px",
-                                        "lineHeight": "60px",
-                                        "borderWidth": "1px",
-                                        "borderStyle": "dashed",
-                                        "borderRadius": "5px",
-                                        "textAlign": "center",
-                                        "margin": "10px 0",
-                                    },
-                                    multiple=False,
-                                    accept="image/*",  # Accept only image files
-                                ),
-                                html.Div(id="upload-output"),
-                                # Process button - will use default values for segmentation
-                                dbc.Button(
-                                    "Process Image",
-                                    id="process-button",
-                                    color="primary",
-                                    className="mt-3 w-100",
-                                    disabled=True,
-                                ),
-                            ]),
-                        ]),
-                        # Selected cell details panel
-                        dbc.Card(
-                            [
-                                dbc.CardHeader("Selected Cell"),
-                                dbc.CardBody([
-                                    # Add loading spinner for cell image
-                                    dcc.Loading(
-                                        html.Div(id="selected-cell-image", className="mb-3"),
-                                        id="loading-cell-image",
-                                        type="circle",
-                                        overlay_style={
-                                            "visibility": "visible",
-                                            "filter": "blur(3px) opacity(25%)",
-                                        },
-                                    ),
-                                    # Cell details
-                                    html.Div(
-                                        html.P(
-                                            "Process an image and then click on a cell to view details",
-                                            className="text-muted",
-                                        ),
-                                        id="selected-cell-details",
-                                    ),
-                                ]),
-                            ],
-                            className="mt-3",
-                        ),
-                    ],
-                    width=4,
+def layout():
+    title = [
+        html.H1("SCENNIA: Prototype Image Analysis Platform", className="my-2 text-center"),
+        html.P(
+            "A prototype web app of an AI-powered image analysis platform for cultivated "
+            "meat cell line development as part of the SCENNIA project, funded by the Bezos Earth Fund.",
+            className="text-center",
+        ),
+    ]
+    images_card = dbc.Card(
+        style={"height": "100%"},
+        children=[
+            dbc.CardHeader("Images"),
+            dbc.CardBody([]),
+        ],
+    )
+    image_upload_card = dbc.Card(
+        style={"height": "100%"},
+        children=[
+            dbc.CardHeader("Image Upload"),
+            dbc.CardBody([
+                dcc.Upload(
+                    html.Div(["Drag and Drop or ", html.A("Select an Image")]),
+                    id="upload-image",
+                    style={
+                        "width": "100%",
+                        "height": "60px",
+                        "lineHeight": "60px",
+                        "borderWidth": "1px",
+                        "borderStyle": "dashed",
+                        "borderRadius": "5px",
+                        "textAlign": "center",
+                    },
+                    multiple=False,
+                    accept="image/*",  # Accept only image files
                 ),
-                # Right column - Visualization
-                dbc.Col(
-                    [
-                        dbc.Card([
-                            dbc.CardHeader(
-                                [
-                                    "Cell Visualization",
-                                    dbc.Form(
-                                        [
-                                            dbc.Switch(
-                                                id="show-annotations",
-                                                label="Show Annotations",
-                                                value=True,
-                                                class_name="ms-2",
-                                                label_style={"margin": "unset"},
-                                            ),
-                                        ],
-                                    ),
-                                ],
-                                class_name="d-flex justify-content-between",
-                            ),
-                            dbc.CardBody(
-                                dcc.Loading(
-                                    dcc.Graph(
-                                        id="cell-visualization-graph",
-                                        figure=update_full_figure_layout(go.Figure(), 0, 0),
-                                        config={"displayModeBar": False, "staticPlot": False},
-                                        style={"width": "100%", "height": "100%"},
-                                    ),
-                                    id="loading-visualization",
-                                    type="circle",
-                                    overlay_style={
-                                        "visibility": "visible",
-                                        "filter": "blur(3px) opacity(25%)",
-                                    },
-                                )
-                            ),
-                        ]),
-                        # Summary panel
-                        dbc.Card(
-                            [
-                                dbc.CardHeader("Summary"),
-                                dbc.CardBody(
-                                    dcc.Loading(
-                                        html.Div(
-                                            html.P("Upload an image and it will be displayed immediately"),
-                                            id="summary-panel",
-                                        ),
-                                        id="loading-summary",
-                                        type="circle",
-                                    )
-                                ),
-                            ],
-                            className="mt-3",
-                        ),
-                    ],
-                    width=8,
+                html.Div(id="upload-output"),
+                # Process button
+                dbc.Button(
+                    "Process Image",
+                    id="process-button",
+                    color="primary",
+                    className="mt-3 w-100",
+                    disabled=True,
                 ),
             ]),
-            # Add status alert at the bottom
-            html.Div(
-                [
-                    dbc.Alert(
-                        id="image-load-alert",
-                        color="success",
-                        dismissable=True,
-                        is_open=False,
-                        duration=5000,
-                    ),
-                    dbc.Alert(
-                        id="image-process-alert",
-                        color="info",
-                        dismissable=True,
-                        is_open=False,
-                        duration=7500,
-                    ),
-                ],
-                id="status-alert",
-                className="mt-3",
+        ],
+    )
+    image_analysis_card = dbc.Card(
+        style={"height": "100%"},
+        children=[
+            dbc.CardHeader(
+                children=dbc.Row(
+                    className="justify-content-between",
+                    children=[
+                        dbc.Col(className="col-auto", children="Image Analysis"),
+                        dbc.Col(
+                            className="col-auto",
+                            children=dbc.Switch(
+                                id="show-annotations",
+                                label="Show Annotations",
+                                value=True,
+                                className="mb-0",
+                                label_class_name="mb-0",
+                            ),
+                        ),
+                    ],
+                ),
+            ),
+            dbc.CardBody(
+                dcc.Loading(  # Loading spinner
+                    id="loading-visualization",
+                    type="circle",
+                    overlay_style={
+                        "visibility": "visible",
+                        "filter": "blur(3px) opacity(25%)",
+                    },
+                    children=[
+                        dcc.Graph(
+                            id="cell-visualization-graph",
+                            figure=update_full_figure_layout(go.Figure(), 0, 0),
+                            config={"displayModeBar": False, "staticPlot": False},
+                            style={"width": "100%", "height": "100%"},
+                        ),
+                    ],
+                ),
             ),
         ],
+    )
+    summary_card = dbc.Card(
+        children=[
+            dbc.CardHeader("Summary"),
+            dbc.CardBody(
+                dcc.Loading(  # Loading spinner
+                    id="loading-summary",
+                    type="circle",
+                    children=[
+                        html.Div(
+                            html.P("Upload an image and it will be displayed immediately"),
+                            id="summary-panel",
+                        ),
+                    ],
+                ),
+            ),
+        ],
+    )
+    cell_info_card = dbc.Card(
+        style={"height": "100%"},
+        children=[
+            dbc.CardHeader("Cell Info"),
+            dbc.CardBody([
+                # Cell image
+                dcc.Loading(  # Loading spinner
+                    id="loading-cell-image",
+                    type="circle",
+                    overlay_style={
+                        "visibility": "visible",
+                        "filter": "blur(3px) opacity(25%)",
+                    },
+                    children=[
+                        html.Div(id="selected-cell-image", className="mb-3"),
+                    ],
+                ),
+                # Cell details
+                html.Div(
+                    id="selected-cell-details",
+                    children=[
+                        html.P(
+                            "Process an image and then click on a cell to view details",
+                            className="text-muted",
+                        ),
+                    ],
+                ),
+            ]),
+        ],
+    )
+    model_status = html.Div(id="model-status")
+    alerts = html.Div(
+        id="status-alert",
+        children=[
+            dbc.Alert(
+                id="image-load-alert",
+                color="success",
+                dismissable=True,
+                is_open=False,
+                duration=5000,
+            ),
+            dbc.Alert(
+                id="image-process-alert",
+                color="info",
+                dismissable=True,
+                is_open=False,
+                duration=7500,
+            ),
+        ],
+    )
+    return dbc.Container(
         fluid=True,
-    ),
-    # Hidden data stores
-    dcc.Store(id="image-hash-store"),
-])
+        children=[
+            # Row: Title
+            dbc.Row(className="row-cols-1 g-2", children=[dbc.Col(title)]),
+            # Row: Main content
+            dbc.Row(
+                className="row-cols-2 g-2 mb-2",
+                children=[
+                    dbc.Col(width=8, children=[images_card]),
+                    dbc.Col(width=4, children=[image_upload_card]),
+                    dbc.Col(
+                        width=8,
+                        children=[
+                            dbc.Row(
+                                class_name="row-cols-1 g-2",
+                                children=[
+                                    dbc.Col(width=12, children=[image_analysis_card]),
+                                    dbc.Col(width=12, children=[summary_card]),
+                                ],
+                            )
+                        ],
+                    ),
+                    dbc.Col(width=4, children=[cell_info_card]),
+                ],
+            ),
+            # Row: Footer
+            dbc.Row(
+                className="row-cols-1 g-2",
+                children=[
+                    dbc.Col(width=12, children=[model_status]),
+                    dbc.Col(width=12, children=alerts),
+                ],
+            ),
+            # Hidden data stores
+            dcc.Store(id="image-hash-store"),
+        ],
+    )
+
+
+app.layout = layout()
 
 
 # Add callback for model status
