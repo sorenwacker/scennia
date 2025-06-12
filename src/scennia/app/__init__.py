@@ -9,7 +9,6 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from cellpose import models
 from dash import DiskcacheManager, dcc, html
 from dash.dependencies import ClientsideFunction, Input, Output, State
 from PIL.Image import Image
@@ -31,7 +30,7 @@ from scennia.app.image import (
     save_processed_to_cache,
     update_full_figure_layout,
 )
-from scennia.app.model import classify_cell_crop, load_classification_model, model_manager
+from scennia.app.model import model_manager
 
 # Diskcache for non-production apps when developing locally
 background_callback_manager = DiskcacheManager(diskcache.Cache("./cache"))
@@ -99,9 +98,6 @@ app.index_string = """
     </body>
 </html>
 """
-
-# Keep GPU enabled as requested
-model = models.CellposeModel(gpu=True)
 
 # App layout
 app.layout = html.Div(
@@ -280,13 +276,13 @@ app.layout = html.Div(
     Input("upload-image", "id"),  # Trigger on app load by using a static component ID
 )
 def display_model_status(_):
-    if model_manager.is_loaded() and model_manager.model_metadata is not None:
+    if model_manager.is_onnx_model_loaded() and model_manager.onnx_model_metadata is not None:
         return dbc.Alert(
             [
                 html.Strong("Classification Model Loaded: "),
-                f"{model_manager.model_metadata.get('model_name', 'Unknown')} with {model_manager.model_metadata.get('num_classes', 0)} classes",  # noqa: E501
+                f"{model_manager.onnx_model_metadata.get('model_name', 'Unknown')} with {model_manager.onnx_model_metadata.get('num_classes', 0)} classes",  # noqa: E501
                 html.Br(),
-                html.Small(f"Classes: {', '.join(model_manager.model_metadata.get('class_names', []))}"),
+                html.Small(f"Classes: {', '.join(model_manager.onnx_model_metadata.get('class_names', []))}"),
             ],
             color="success",
             className="mb-2",
@@ -565,6 +561,8 @@ def process_image(n_clicks, image_hash, show_annotations):
         )
 
     try:
+        cellpose_model = model_manager.get_cellpose_model()
+
         processing_start = time.time()
 
         # Convert uncompressed image to array for processing
@@ -575,7 +573,9 @@ def process_image(n_clicks, image_hash, show_annotations):
         cell_prob_threshold = 0.0  # Default value
 
         segmentation_start = time.time()
-        result = model.eval([image_array], flow_threshold=flow_threshold, cellprob_threshold=cell_prob_threshold)
+        result = cellpose_model.eval(
+            [image_array], flow_threshold=flow_threshold, cellprob_threshold=cell_prob_threshold
+        )
         segmentation_time = time.time() - segmentation_start
 
         mask = result[0][0]
@@ -615,10 +615,11 @@ def process_image(n_clicks, image_hash, show_annotations):
 
             # Perform classification if model is available
             cell_prediction = {}
-            if model_manager.is_loaded():
+            if model_manager.has_onnx_model_path():
+                model_manager.load_onnx_model_if_needed()
                 try:
                     # Classify the cell crop
-                    classification_result = classify_cell_crop(cropped_uncompressed_image)
+                    classification_result = model_manager.classify_cell_crop(cropped_uncompressed_image)
 
                     if "error" not in classification_result:
                         cell_prediction = classification_result
@@ -1071,7 +1072,8 @@ def main():
 
     # Load classification model if provided
     if args.model_path:
-        success = load_classification_model(args.model_path)
+        model_manager.set_onnx_model_path(args.model_path)
+        success = model_manager.load_onnx_model_if_needed()
         if success:
             print(f"Successfully loaded classification model from {args.model_path}")
         else:

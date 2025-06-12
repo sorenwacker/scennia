@@ -3,6 +3,7 @@ import os
 
 import numpy as np
 import onnxruntime as ort
+from cellpose import models
 from PIL.Image import Image
 from torchvision import transforms
 
@@ -11,42 +12,50 @@ class ModelManager:
     """Manages ONNX model loading and classification without global variables"""
 
     def __init__(self):
-        self.classification_model = None
-        self.model_metadata = None
-        self.transform_for_classification = None
+        self.onnx_model_path = None
+        self.onnx_classification_model = None
+        self.onnx_model_metadata = None
+        self.onnx_transform_for_classification = None
+        self.cellpose_model = None
 
-    def load_model(self, model_path):
+    def set_onnx_model_path(self, model_path):
+        self.onnx_model_path = model_path
+
+    def load_onnx_model_if_needed(self):
         """Load ONNX classification model and metadata"""
+        if not self.onnx_model_path or self.is_onnx_model_loaded():
+            return False
+
         try:
             # Load ONNX model
-            self.classification_model = ort.InferenceSession(model_path)
-            print(f"Loaded classification model from {model_path}")
+            self.onnx_classification_model = ort.InferenceSession(self.onnx_model_path)
+            print(f"Loaded classification model from {self.onnx_model_path}")
 
             # Load metadata
-            metadata_path = os.path.join(os.path.dirname(model_path), "metadata.json")
+            metadata_path = os.path.join(os.path.dirname(self.onnx_model_path), "metadata.json")
             if os.path.exists(metadata_path):
                 with open(metadata_path) as f:
-                    self.model_metadata = json.load(f)
-                print(f"Loaded model metadata: {self.model_metadata['num_classes']} classes")
-                print(f"Classes: {self.model_metadata['class_names']}")
+                    self.onnx_model_metadata = json.load(f)
+                print(f"Loaded model metadata: {self.onnx_model_metadata['num_classes']} classes")
+                print(f"Classes: {self.onnx_model_metadata['class_names']}")
             else:
                 print("Warning: No metadata file found")
-                self.model_metadata = None
+                self.onnx_model_metadata = None
 
             # Setup transforms for classification
-            img_size = self.model_metadata.get("img_size", 224) if self.model_metadata else 224
+            img_size = self.onnx_model_metadata.get("img_size", 224) if self.onnx_model_metadata else 224
             mean = (
-                self.model_metadata.get("normalization", {}).get("mean", [0.485, 0.456, 0.406])
-                if self.model_metadata
+                self.onnx_model_metadata.get("normalization", {}).get("mean", [0.485, 0.456, 0.406])
+                if self.onnx_model_metadata
                 else [0.485, 0.456, 0.406]
             )
             std = (
-                self.model_metadata.get("normalization", {}).get("std", [0.229, 0.224, 0.225])
-                if self.model_metadata
+                self.onnx_model_metadata.get("normalization", {}).get("std", [0.229, 0.224, 0.225])
+                if self.onnx_model_metadata
                 else [0.229, 0.224, 0.225]
             )
 
-            self.transform_for_classification = transforms.Compose(
+            self.onnx_transform_for_classification = transforms.Compose(
                 [
                     transforms.Resize((img_size, img_size)),
                     transforms.ToTensor(),
@@ -55,14 +64,13 @@ class ModelManager:
             )
 
             return True
-
         except Exception as e:
             print(f"Error loading classification model: {e}")
             return False
 
     def classify_cell_crop(self, cropped_image: Image):
         """Classify a cell crop using the loaded ONNX model"""
-        if self.classification_model is None or self.transform_for_classification is None:
+        if self.onnx_classification_model is None or self.onnx_transform_for_classification is None:
             return {"error": "Classification model not loaded"}
 
         try:
@@ -71,11 +79,11 @@ class ModelManager:
                 cropped_image = cropped_image.convert("RGB")
 
             # Apply transforms
-            input_tensor = self.transform_for_classification(cropped_image).unsqueeze(0).numpy()
+            input_tensor = self.onnx_transform_for_classification(cropped_image).unsqueeze(0).numpy()
 
             # Run inference
-            inputs = {self.classification_model.get_inputs()[0].name: input_tensor}
-            outputs = self.classification_model.run(None, inputs)
+            inputs = {self.onnx_classification_model.get_inputs()[0].name: input_tensor}
+            outputs = self.onnx_classification_model.run(None, inputs)
             predictions = outputs[0][0]  # Get first batch item
 
             # Get predicted class and confidence
@@ -85,11 +93,11 @@ class ModelManager:
             # Get class name if metadata available - Combined if statement (fixes SIM102)
             class_name = "Unknown"
             if (
-                self.model_metadata
-                and "class_names" in self.model_metadata
-                and predicted_class_idx < len(self.model_metadata["class_names"])
+                self.onnx_model_metadata
+                and "class_names" in self.onnx_model_metadata
+                and predicted_class_idx < len(self.onnx_model_metadata["class_names"])
             ):
-                class_name = self.model_metadata["class_names"][predicted_class_idx]
+                class_name = self.onnx_model_metadata["class_names"][predicted_class_idx]
 
             # Parse treatment and concentration from class name
             treatment_type = "unknown"
@@ -117,20 +125,21 @@ class ModelManager:
             print(f"Error in cell classification: {e}")
             return {"error": str(e)}
 
-    def is_loaded(self):
-        """Check if model is loaded and ready"""
-        return self.classification_model is not None and self.transform_for_classification is not None
+    def has_onnx_model_path(self):
+        """Check if ONNX model path has been set"""
+        return self.onnx_model_path is not None
+
+    def is_onnx_model_loaded(self):
+        """Check if ONNX model is loaded and ready"""
+        return self.onnx_classification_model is not None and self.onnx_transform_for_classification is not None
+
+    def get_cellpose_model(self):
+        if self.cellpose_model:
+            return self.cellpose_model
+        # Load cellpose model
+        self.cellpose_model = models.CellposeModel(gpu=True)
+        return self.cellpose_model
 
 
 # Create global instance to replace global variables
 model_manager = ModelManager()
-
-
-def load_classification_model(model_path):
-    """Load ONNX classification model and metadata"""
-    return model_manager.load_model(model_path)
-
-
-def classify_cell_crop(cropped_image: Image):
-    """Classify a cell crop using the loaded ONNX model"""
-    return model_manager.classify_cell_crop(cropped_image)
