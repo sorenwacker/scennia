@@ -3,6 +3,7 @@ import hashlib
 import io
 import json
 import os
+from dataclasses import dataclass
 
 import numpy as np
 import plotly.graph_objects as go
@@ -44,6 +45,24 @@ def decode_image(contents: str) -> ImageFile:
     return Image.open(io.BytesIO(decoded))
 
 
+@dataclass
+class EncodedImage:
+    contents: str
+    width: int
+    height: int
+
+
+# Encode image to base64
+def encode_image(image: Image.Image) -> EncodedImage:
+    # Save to bytes buffer
+    buffer = io.BytesIO()
+    image.save(buffer, format="WebP")
+    buffer.seek(0)
+    # Convert to base64
+    contents = f"data:image/webp;base64,{base64.b64encode(buffer.read()).decode()}"
+    return EncodedImage(contents, image.width, image.height)
+
+
 # Calculate image hash for caching
 def calculate_image_hash(image: ImageFile) -> str:
     return hashlib.md5(image.tobytes()).hexdigest()
@@ -54,26 +73,6 @@ CACHE_DIR = "cache"
 CROPPED_CACHE_DIR = os.path.join(CACHE_DIR, "cropped")
 os.makedirs(CACHE_DIR, exist_ok=True)
 os.makedirs(CROPPED_CACHE_DIR, exist_ok=True)
-
-
-# Get compressed image from cache
-def get_compressed_image_from_cache(image_hash: str) -> ImageFile | None:
-    path = os.path.join(CACHE_DIR, f"{image_hash}.webp")
-    if os.path.exists(path):
-        try:
-            return Image.open(path)
-        except Exception as e:
-            print(f"Error reading compressed image from cache: {e!s}")
-    return None
-
-
-# Save image to cache as original format and compressed format
-def save_image_to_cache(image_hash: str, image: ImageFile):
-    try:
-        image.save(os.path.join(CACHE_DIR, f"{image_hash}.webp"))
-    except Exception as e:
-        print(f"Error saving image to cache: {e!s}")
-        return False
 
 
 # Check if result is in cache
@@ -180,7 +179,7 @@ def update_full_figure_layout(fig: go.Figure, width, height, has_cell_data=False
 
 
 # Create visualization with all elements
-def create_complete_figure(compressed_image: ImageFile, cell_data=None, mask_data=None, show_annotations=True):
+def create_complete_figure(encoded_image: EncodedImage, cell_data=None, mask_data=None, show_annotations=True):
     """Create a complete figure with all elements, with annotations visible based on show_annotations"""
 
     try:
@@ -190,13 +189,13 @@ def create_complete_figure(compressed_image: ImageFile, cell_data=None, mask_dat
         # Add the original image as the base layer
         fig.add_layout_image(
             {
-                "source": compressed_image,
+                "source": encoded_image.contents,
                 "xref": "x",
                 "yref": "y",
                 "x": 0,
                 "y": 0,
-                "sizex": compressed_image.width,
-                "sizey": compressed_image.height,
+                "sizex": encoded_image.width,
+                "sizey": encoded_image.height,
                 "sizing": "stretch",  # Use stretch for pixel-perfect mapping
                 "opacity": 1,
                 "layer": "below",
@@ -293,7 +292,7 @@ def create_complete_figure(compressed_image: ImageFile, cell_data=None, mask_dat
                 )
 
         update_full_figure_layout(
-            fig, compressed_image.width, compressed_image.height, cell_data is not None, show_annotations
+            fig, encoded_image.width, encoded_image.height, cell_data is not None, show_annotations
         )
 
         return fig

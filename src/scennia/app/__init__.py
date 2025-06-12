@@ -1,5 +1,6 @@
 import argparse
 import time
+from dataclasses import dataclass, field
 
 import dash
 import dash_bootstrap_components as dbc
@@ -17,16 +18,16 @@ from skimage.measure import regionprops
 from skimage.segmentation import find_boundaries
 
 from scennia.app.image import (
+    EncodedImage,
     calculate_image_hash,
     create_complete_figure,
     crop_cell,
     decode_image,
+    encode_image,
     get_compressed_cropped_image,
-    get_compressed_image_from_cache,
     get_concentration_color,
     get_concentration_color_plotly,
     get_processed_from_cache,
-    save_image_to_cache,
     save_processed_to_cache,
     update_full_figure_layout,
 )
@@ -302,10 +303,16 @@ def display_model_status(_):
 
 
 # Server-side stores
-UNCOMPRESSED_IMAGE_STORE: dict[str, ImageFile] = {}
-COMPRESSED_IMAGE_STORE: dict[str, ImageFile] = {}
-CELL_DATA_STORE = {}
-MASK_DATA_STORE = {}
+@dataclass
+class ImageData:
+    uncompressed_image: ImageFile
+    encoded_image: EncodedImage
+    cropped_encoded_images: dict[str, EncodedImage] = field(default_factory=dict)
+    cell_data: list = field(default_factory=list)
+    mask_data: dict = field(default_factory=dict)
+
+
+IMAGE_DATA_STORE: dict[str, ImageData] = {}
 
 
 # Display uploaded image
@@ -340,35 +347,29 @@ def display_uploaded_image(contents, filename):
         image = decode_image(contents)
         image_hash = calculate_image_hash(image)
 
-        # Save uncompressed and compressed image to cache.
-        save_image_to_cache(image_hash, image)
-        # Immediately get compressed image from cache.
-        compressed_image = get_compressed_image_from_cache(image_hash)
-        assert compressed_image is not None
+        # Encode to WebP
+        encoded_image = encode_image(image)
 
         # Create a figure with just the original image
         fig = go.Figure()
-
-        # Add the original image
         fig.add_layout_image(
             {
-                "source": compressed_image,
+                "source": encoded_image.contents,
                 "xref": "x",
                 "yref": "y",
                 "x": 0,
                 "y": 0,
-                "sizex": compressed_image.width,
-                "sizey": compressed_image.height,
+                "sizex": encoded_image.width,
+                "sizey": encoded_image.height,
                 "sizing": "stretch",  # Use stretch for pixel-perfect mapping
                 "opacity": 1,
                 "layer": "below",
             }
         )
-
         update_full_figure_layout(fig, image.width, image.height, False, False)
 
-        UNCOMPRESSED_IMAGE_STORE[image_hash] = image
-        COMPRESSED_IMAGE_STORE[image_hash] = compressed_image
+        # Update store
+        IMAGE_DATA_STORE[image_hash] = ImageData(image, encoded_image)
 
         return (
             fig,
@@ -417,16 +418,10 @@ def display_uploaded_image(contents, filename):
     prevent_initial_call=True,
 )
 def process_image(n_clicks, image_hash, show_annotations):
-    if (
-        n_clicks is None
-        or image_hash is None
-        or image_hash not in UNCOMPRESSED_IMAGE_STORE
-        or image_hash not in COMPRESSED_IMAGE_STORE
-    ):
+    if n_clicks is None or image_hash is None or image_hash not in IMAGE_DATA_STORE:
         return (None, None, html.P("Upload an image and click 'Process Image'"), dash.no_update, None, dash.no_update)
 
-    uncompressed_image = UNCOMPRESSED_IMAGE_STORE[image_hash]
-    compressed_image = COMPRESSED_IMAGE_STORE[image_hash]
+    image_data = IMAGE_DATA_STORE[image_hash]
 
     start_time = time.time()
 
@@ -554,11 +549,11 @@ def process_image(n_clicks, image_hash, show_annotations):
         )
 
         # Create the figure with cell data
-        fig = create_complete_figure(compressed_image, cell_props, mask_data, show_annotations)
+        fig = create_complete_figure(image_data.encoded_image, cell_props, mask_data, show_annotations)
 
         # Update stores
-        CELL_DATA_STORE[image_hash] = cell_props
-        MASK_DATA_STORE[image_hash] = mask_data
+        image_data.cell_data = cell_props
+        image_data.mask_data = mask_data
 
         return (
             summary_content,
@@ -573,7 +568,7 @@ def process_image(n_clicks, image_hash, show_annotations):
         processing_start = time.time()
 
         # Convert uncompressed image to array for processing
-        image_array = np.asarray(uncompressed_image)
+        image_array = np.asarray(image_data.uncompressed_image)
 
         # Process with cellpose (using default values)
         flow_threshold = 0.4  # Default value
@@ -615,7 +610,7 @@ def process_image(n_clicks, image_hash, show_annotations):
             }
 
             # Crop cell
-            cropped_uncompressed_image = crop_cell(uncompressed_image, cell_props, {"mask": mask})
+            cropped_uncompressed_image = crop_cell(image_data.uncompressed_image, cell_props, {"mask": mask})
             cropped_uncompressed_images[str(cell_id)] = cropped_uncompressed_image
 
             # Perform classification if model is available
@@ -788,11 +783,11 @@ def process_image(n_clicks, image_hash, show_annotations):
         summary_content.append(html.P(html.B("Click on any cell marker to view details"), className="mt-3"))
 
         # Create the figure with cell data
-        fig = create_complete_figure(compressed_image, cell_data, mask_data, show_annotations)
+        fig = create_complete_figure(image_data.encoded_image, cell_data, mask_data, show_annotations)
 
         # Update stores
-        CELL_DATA_STORE[image_hash] = cell_data
-        MASK_DATA_STORE[image_hash] = mask_data
+        image_data.cell_data = cell_data
+        image_data.mask_data = mask_data
 
         return (
             summary_content,
@@ -829,16 +824,12 @@ def process_image(n_clicks, image_hash, show_annotations):
     prevent_initial_call=True,
 )
 def display_selected_cell(click_data, image_hash):
-    if (
-        not click_data
-        or image_hash not in COMPRESSED_IMAGE_STORE
-        or image_hash not in CELL_DATA_STORE
-        or image_hash not in MASK_DATA_STORE
-    ):
+    if not click_data or image_hash not in IMAGE_DATA_STORE:
         return html.Div(), html.P("Process an image and then click on a cell to view details", className="text-muted")
 
-    cell_data = CELL_DATA_STORE[image_hash]
-    mask_data = MASK_DATA_STORE[image_hash]
+    image_data = IMAGE_DATA_STORE[image_hash]
+    cropped_encoded_images = image_data.cropped_encoded_images
+    cell_data = image_data.cell_data
 
     try:
         # Get click coordinates
@@ -897,8 +888,15 @@ def display_selected_cell(click_data, image_hash):
                 return html.Div(), html.P(f"Cell data not found for ID {cell_id}", className="text-muted")
 
         # Get cropped image
-        cell_id = cell["id"]
-        cropped_image = get_compressed_cropped_image(image_hash, str(cell_id))
+        cell_id = str(cell["id"])
+        if cell_id in cropped_encoded_images:
+            cropped_encoded_image = cropped_encoded_images[cell_id]
+        else:
+            cropped_image = get_compressed_cropped_image(image_hash, cell_id)
+            cropped_encoded_image = encode_image(cropped_image) if cropped_image else None
+            if cropped_encoded_image:
+                # Update store
+                cropped_encoded_images[cell_id] = cropped_encoded_image
 
         # Determine border color based on prediction or size
         predicted_props = cell.get("predicted_properties", {})
@@ -908,16 +906,17 @@ def display_selected_cell(click_data, image_hash):
         else:
             border_color = "green" if cell["is_large"] else "red"
 
-        if cropped_image:
+        if cropped_encoded_image:
             # Use the cached cropped image directly
             cell_image = html.Img(
-                src=cropped_image,
+                src=cropped_encoded_image.contents,
                 style={"width": "100%", "border": f"3px solid {border_color}"},
             )
         else:
             print("Creating cropped image dynamically (fallback)")
 
-            image = COMPRESSED_IMAGE_STORE[image_hash]
+            uncompressed_image = image_data.uncompressed_image
+            mask_data = image_data.mask_data
 
             # Create the cropped image dynamically (fallback)
             y0, x0, y1, x1 = cell["bbox"]
@@ -936,13 +935,13 @@ def display_selected_cell(click_data, image_hash):
             # Add the original image
             cell_fig.add_layout_image(
                 {
-                    "source": image,
+                    "source": uncompressed_image,  # TODO: use encoded image
                     "xref": "x",
                     "yref": "y",
                     "x": 0,
                     "y": 0,
-                    "sizex": image.width,
-                    "sizey": image.height,
+                    "sizex": uncompressed_image.width,
+                    "sizey": uncompressed_image.height,
                     "sizing": "stretch",
                     "opacity": 1,
                     "layer": "below",
