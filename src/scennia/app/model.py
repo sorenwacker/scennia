@@ -55,13 +55,11 @@ class ModelManager:
                 else [0.229, 0.224, 0.225]
             )
 
-            self.onnx_transform_for_classification = transforms.Compose(
-                [
-                    transforms.Resize((img_size, img_size)),
-                    transforms.ToTensor(),
-                    transforms.Normalize(mean=mean, std=std),
-                ]
-            )
+            self.onnx_transform_for_classification = transforms.Compose([
+                transforms.Resize((img_size, img_size)),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=mean, std=std),
+            ])
 
             return True
         except Exception as e:

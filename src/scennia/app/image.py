@@ -187,20 +187,18 @@ def create_complete_figure(encoded_image: EncodedImage, cell_data=None, mask_dat
         fig = go.Figure()
 
         # Add the original image as the base layer
-        fig.add_layout_image(
-            {
-                "source": encoded_image.contents,
-                "xref": "x",
-                "yref": "y",
-                "x": 0,
-                "y": 0,
-                "sizex": encoded_image.width,
-                "sizey": encoded_image.height,
-                "sizing": "stretch",  # Use stretch for pixel-perfect mapping
-                "opacity": 1,
-                "layer": "below",
-            }
-        )
+        fig.add_layout_image({
+            "source": encoded_image.contents,
+            "xref": "x",
+            "yref": "y",
+            "x": 0,
+            "y": 0,
+            "sizex": encoded_image.width,
+            "sizey": encoded_image.height,
+            "sizing": "stretch",  # Use stretch for pixel-perfect mapping
+            "opacity": 1,
+            "layer": "below",
+        })
 
         # Add cell overlays if data exists
         if cell_data and mask_data:

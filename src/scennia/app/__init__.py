@@ -100,174 +100,162 @@ app.index_string = """
 """
 
 # App layout
-app.layout = html.Div(
-    [
-        dbc.Container(
-            [
-                html.H1("Interactive Cell Analyzer with Lactate Classification", className="my-4 text-center"),
-                # Add model status indicator
-                html.Div(id="model-status", className="mb-3"),
-                dbc.Row(
+app.layout = html.Div([
+    dbc.Container(
+        [
+            html.H1("Interactive Cell Analyzer with Lactate Classification", className="my-4 text-center"),
+            # Add model status indicator
+            html.Div(id="model-status", className="mb-3"),
+            dbc.Row([
+                # Left column - Controls and Cell Details
+                dbc.Col(
                     [
-                        # Left column - Controls and Cell Details
-                        dbc.Col(
+                        dbc.Card([
+                            dbc.CardHeader("Upload"),
+                            dbc.CardBody([
+                                dcc.Upload(
+                                    html.Div(["Drag and Drop or ", html.A("Select an Image")]),
+                                    id="upload-image",
+                                    style={
+                                        "width": "100%",
+                                        "height": "60px",
+                                        "lineHeight": "60px",
+                                        "borderWidth": "1px",
+                                        "borderStyle": "dashed",
+                                        "borderRadius": "5px",
+                                        "textAlign": "center",
+                                        "margin": "10px 0",
+                                    },
+                                    multiple=False,
+                                    accept="image/*",  # Accept only image files
+                                ),
+                                html.Div(id="upload-output"),
+                                # Process button - will use default values for segmentation
+                                dbc.Button(
+                                    "Process Image",
+                                    id="process-button",
+                                    color="primary",
+                                    className="mt-3 w-100",
+                                    disabled=True,
+                                ),
+                            ]),
+                        ]),
+                        # Selected cell details panel
+                        dbc.Card(
                             [
-                                dbc.Card(
-                                    [
-                                        dbc.CardHeader("Upload"),
-                                        dbc.CardBody(
-                                            [
-                                                dcc.Upload(
-                                                    html.Div(["Drag and Drop or ", html.A("Select an Image")]),
-                                                    id="upload-image",
-                                                    style={
-                                                        "width": "100%",
-                                                        "height": "60px",
-                                                        "lineHeight": "60px",
-                                                        "borderWidth": "1px",
-                                                        "borderStyle": "dashed",
-                                                        "borderRadius": "5px",
-                                                        "textAlign": "center",
-                                                        "margin": "10px 0",
-                                                    },
-                                                    multiple=False,
-                                                    accept="image/*",  # Accept only image files
-                                                ),
-                                                html.Div(id="upload-output"),
-                                                # Process button - will use default values for segmentation
-                                                dbc.Button(
-                                                    "Process Image",
-                                                    id="process-button",
-                                                    color="primary",
-                                                    className="mt-3 w-100",
-                                                    disabled=True,
-                                                ),
-                                            ]
+                                dbc.CardHeader("Selected Cell"),
+                                dbc.CardBody([
+                                    # Add loading spinner for cell image
+                                    dcc.Loading(
+                                        html.Div(id="selected-cell-image", className="mb-3"),
+                                        id="loading-cell-image",
+                                        type="circle",
+                                        overlay_style={
+                                            "visibility": "visible",
+                                            "filter": "blur(3px) opacity(25%)",
+                                        },
+                                    ),
+                                    # Cell details
+                                    html.Div(
+                                        html.P(
+                                            "Process an image and then click on a cell to view details",
+                                            className="text-muted",
                                         ),
-                                    ]
-                                ),
-                                # Selected cell details panel
-                                dbc.Card(
-                                    [
-                                        dbc.CardHeader("Selected Cell"),
-                                        dbc.CardBody(
-                                            [
-                                                # Add loading spinner for cell image
-                                                dcc.Loading(
-                                                    html.Div(id="selected-cell-image", className="mb-3"),
-                                                    id="loading-cell-image",
-                                                    type="circle",
-                                                    overlay_style={
-                                                        "visibility": "visible",
-                                                        "filter": "blur(3px) opacity(25%)",
-                                                    },
-                                                ),
-                                                # Cell details
-                                                html.Div(
-                                                    html.P(
-                                                        "Process an image and then click on a cell to view details",
-                                                        className="text-muted",
-                                                    ),
-                                                    id="selected-cell-details",
-                                                ),
-                                            ]
-                                        ),
-                                    ],
-                                    className="mt-3",
-                                ),
+                                        id="selected-cell-details",
+                                    ),
+                                ]),
                             ],
-                            width=4,
-                        ),
-                        # Right column - Visualization
-                        dbc.Col(
-                            [
-                                dbc.Card(
-                                    [
-                                        dbc.CardHeader(
-                                            [
-                                                "Cell Visualization",
-                                                dbc.Form(
-                                                    [
-                                                        dbc.Switch(
-                                                            id="show-annotations",
-                                                            label="Show Annotations",
-                                                            value=True,
-                                                            class_name="ms-2",
-                                                            label_style={"margin": "unset"},
-                                                        ),
-                                                    ],
-                                                ),
-                                            ],
-                                            class_name="d-flex justify-content-between",
-                                        ),
-                                        dbc.CardBody(
-                                            dcc.Loading(
-                                                dcc.Graph(
-                                                    id="cell-visualization-graph",
-                                                    figure=update_full_figure_layout(go.Figure(), 0, 0),
-                                                    config={"displayModeBar": False, "staticPlot": False},
-                                                    style={"width": "100%", "height": "100%"},
-                                                ),
-                                                id="loading-visualization",
-                                                type="circle",
-                                                overlay_style={
-                                                    "visibility": "visible",
-                                                    "filter": "blur(3px) opacity(25%)",
-                                                },
-                                            )
-                                        ),
-                                    ]
-                                ),
-                                # Summary panel
-                                dbc.Card(
-                                    [
-                                        dbc.CardHeader("Summary"),
-                                        dbc.CardBody(
-                                            dcc.Loading(
-                                                html.Div(
-                                                    html.P("Upload an image and it will be displayed immediately"),
-                                                    id="summary-panel",
-                                                ),
-                                                id="loading-summary",
-                                                type="circle",
-                                            )
-                                        ),
-                                    ],
-                                    className="mt-3",
-                                ),
-                            ],
-                            width=8,
-                        ),
-                    ]
-                ),
-                # Add status alert at the bottom
-                html.Div(
-                    [
-                        dbc.Alert(
-                            id="image-load-alert",
-                            color="success",
-                            dismissable=True,
-                            is_open=False,
-                            duration=5000,
-                        ),
-                        dbc.Alert(
-                            id="image-process-alert",
-                            color="info",
-                            dismissable=True,
-                            is_open=False,
-                            duration=7500,
+                            className="mt-3",
                         ),
                     ],
-                    id="status-alert",
-                    className="mt-3",
+                    width=4,
                 ),
-            ],
-            fluid=True,
-        ),
-        # Hidden data stores
-        dcc.Store(id="image-hash-store"),
-    ]
-)
+                # Right column - Visualization
+                dbc.Col(
+                    [
+                        dbc.Card([
+                            dbc.CardHeader(
+                                [
+                                    "Cell Visualization",
+                                    dbc.Form(
+                                        [
+                                            dbc.Switch(
+                                                id="show-annotations",
+                                                label="Show Annotations",
+                                                value=True,
+                                                class_name="ms-2",
+                                                label_style={"margin": "unset"},
+                                            ),
+                                        ],
+                                    ),
+                                ],
+                                class_name="d-flex justify-content-between",
+                            ),
+                            dbc.CardBody(
+                                dcc.Loading(
+                                    dcc.Graph(
+                                        id="cell-visualization-graph",
+                                        figure=update_full_figure_layout(go.Figure(), 0, 0),
+                                        config={"displayModeBar": False, "staticPlot": False},
+                                        style={"width": "100%", "height": "100%"},
+                                    ),
+                                    id="loading-visualization",
+                                    type="circle",
+                                    overlay_style={
+                                        "visibility": "visible",
+                                        "filter": "blur(3px) opacity(25%)",
+                                    },
+                                )
+                            ),
+                        ]),
+                        # Summary panel
+                        dbc.Card(
+                            [
+                                dbc.CardHeader("Summary"),
+                                dbc.CardBody(
+                                    dcc.Loading(
+                                        html.Div(
+                                            html.P("Upload an image and it will be displayed immediately"),
+                                            id="summary-panel",
+                                        ),
+                                        id="loading-summary",
+                                        type="circle",
+                                    )
+                                ),
+                            ],
+                            className="mt-3",
+                        ),
+                    ],
+                    width=8,
+                ),
+            ]),
+            # Add status alert at the bottom
+            html.Div(
+                [
+                    dbc.Alert(
+                        id="image-load-alert",
+                        color="success",
+                        dismissable=True,
+                        is_open=False,
+                        duration=5000,
+                    ),
+                    dbc.Alert(
+                        id="image-process-alert",
+                        color="info",
+                        dismissable=True,
+                        is_open=False,
+                        duration=7500,
+                    ),
+                ],
+                id="status-alert",
+                className="mt-3",
+            ),
+        ],
+        fluid=True,
+    ),
+    # Hidden data stores
+    dcc.Store(id="image-hash-store"),
+])
 
 
 # Add callback for model status
@@ -348,20 +336,18 @@ def display_uploaded_image(contents, filename):
 
         # Create a figure with just the original image
         fig = go.Figure()
-        fig.add_layout_image(
-            {
-                "source": encoded_image.contents,
-                "xref": "x",
-                "yref": "y",
-                "x": 0,
-                "y": 0,
-                "sizex": encoded_image.width,
-                "sizey": encoded_image.height,
-                "sizing": "stretch",  # Use stretch for pixel-perfect mapping
-                "opacity": 1,
-                "layer": "below",
-            }
-        )
+        fig.add_layout_image({
+            "source": encoded_image.contents,
+            "xref": "x",
+            "yref": "y",
+            "x": 0,
+            "y": 0,
+            "sizex": encoded_image.width,
+            "sizey": encoded_image.height,
+            "sizing": "stretch",  # Use stretch for pixel-perfect mapping
+            "opacity": 1,
+            "layer": "below",
+        })
         update_full_figure_layout(fig, image.width, image.height, False, False)
 
         # Update store
@@ -459,12 +445,10 @@ def process_image(n_clicks, image_hash, show_annotations):
             # Create text summary
             total_cells = sum(class_counts.values())
             summary_content.append(
-                html.P(
-                    [
-                        "Cell classifications: ",
-                        html.Span(f"{total_cells} total cells classified", style={"fontWeight": "bold"}),
-                    ]
-                )
+                html.P([
+                    "Cell classifications: ",
+                    html.Span(f"{total_cells} total cells classified", style={"fontWeight": "bold"}),
+                ])
             )
 
             # Create concentration distribution plot
@@ -478,14 +462,12 @@ def process_image(n_clicks, image_hash, show_annotations):
                     # Determine class name for this concentration
                     class_name = "control_00" if concentration == 0 else f"lactate_{concentration:02d}"
 
-                    plot_data.append(
-                        {
-                            "Class": class_name,
-                            "Concentration": concentration,
-                            "Count": count,
-                            "Color": get_concentration_color_plotly(concentration),
-                        }
-                    )
+                    plot_data.append({
+                        "Class": class_name,
+                        "Concentration": concentration,
+                        "Count": count,
+                        "Color": get_concentration_color_plotly(concentration),
+                    })
 
                 df_plot = pd.DataFrame(plot_data)
 
@@ -527,22 +509,18 @@ def process_image(n_clicks, image_hash, show_annotations):
             large_cells = sum(c["is_large"] for c in cell_props)
             small_cells = len(cell_props) - large_cells
             summary_content.append(
-                html.P(
-                    [
-                        "Cell count by size: ",
-                        html.Span(f"{large_cells} large", style={"color": "green", "fontWeight": "bold"}),
-                        ", ",
-                        html.Span(f"{small_cells} small", style={"color": "red", "fontWeight": "bold"}),
-                    ]
-                )
+                html.P([
+                    "Cell count by size: ",
+                    html.Span(f"{large_cells} large", style={"color": "green", "fontWeight": "bold"}),
+                    ", ",
+                    html.Span(f"{small_cells} small", style={"color": "red", "fontWeight": "bold"}),
+                ])
             )
 
-        summary_content.extend(
-            [
-                html.P(f"Processing time: {processing_time:.2f} seconds (cached)", className="text-muted mt-2"),
-                html.P(html.B("Click on any cell marker to view details"), className="mt-3"),
-            ]
-        )
+        summary_content.extend([
+            html.P(f"Processing time: {processing_time:.2f} seconds (cached)", className="text-muted mt-2"),
+            html.P(html.B("Click on any cell marker to view details"), className="mt-3"),
+        ])
 
         # Create the figure with cell data
         fig = create_complete_figure(image_data.encoded_image, cell_props, mask_data, show_annotations)
@@ -684,12 +662,10 @@ def process_image(n_clicks, image_hash, show_annotations):
             # Create text summary
             total_cells = sum(class_counts.values())
             summary_content.append(
-                html.P(
-                    [
-                        "Cell classifications: ",
-                        html.Span(f"{total_cells} total cells classified", style={"fontWeight": "bold"}),
-                    ]
-                )
+                html.P([
+                    "Cell classifications: ",
+                    html.Span(f"{total_cells} total cells classified", style={"fontWeight": "bold"}),
+                ])
             )
 
             # Create concentration distribution plot
@@ -703,14 +679,12 @@ def process_image(n_clicks, image_hash, show_annotations):
                     # Determine class name for this concentration
                     class_name = "control_00" if concentration == 0 else f"lactate_{concentration:02d}"
 
-                    plot_data.append(
-                        {
-                            "Class": class_name,
-                            "Concentration": concentration,
-                            "Count": count,
-                            "Color": get_concentration_color_plotly(concentration),
-                        }
-                    )
+                    plot_data.append({
+                        "Class": class_name,
+                        "Concentration": concentration,
+                        "Count": count,
+                        "Color": get_concentration_color_plotly(concentration),
+                    })
 
                 df_plot = pd.DataFrame(plot_data)
 
@@ -752,33 +726,29 @@ def process_image(n_clicks, image_hash, show_annotations):
             large_cells = sum(c["is_large"] for c in cell_data)
             small_cells = len(cell_data) - large_cells
             summary_content.append(
-                html.P(
-                    [
-                        "Cell count by size: ",
-                        html.Span(f"{large_cells} large", style={"color": "green", "fontWeight": "bold"}),
-                        ", ",
-                        html.Span(f"{small_cells} small", style={"color": "red", "fontWeight": "bold"}),
-                    ]
-                )
+                html.P([
+                    "Cell count by size: ",
+                    html.Span(f"{large_cells} large", style={"color": "green", "fontWeight": "bold"}),
+                    ", ",
+                    html.Span(f"{small_cells} small", style={"color": "red", "fontWeight": "bold"}),
+                ])
             )
 
         # Add timing information
         summary_content.append(
-            html.Div(
-                [
-                    html.P("Processing times:", className="fw-bold mt-2 mb-1"),
-                    html.Ul(
-                        [
-                            html.Li(f"Segmentation: {segmentation_time:.2f}s"),
-                            html.Li(f"Classification: {classification_time:.2f}s"),
-                            html.Li(f"Cropping: {cropping_time:.2f}s"),
-                            html.Li(f"Caching: {cache_time:.2f}s"),
-                            html.Li(f"Total: {total_processing_time:.2f}s"),
-                        ],
-                        className="small text-muted",
-                    ),
-                ]
-            )
+            html.Div([
+                html.P("Processing times:", className="fw-bold mt-2 mb-1"),
+                html.Ul(
+                    [
+                        html.Li(f"Segmentation: {segmentation_time:.2f}s"),
+                        html.Li(f"Classification: {classification_time:.2f}s"),
+                        html.Li(f"Cropping: {cropping_time:.2f}s"),
+                        html.Li(f"Caching: {cache_time:.2f}s"),
+                        html.Li(f"Total: {total_processing_time:.2f}s"),
+                    ],
+                    className="small text-muted",
+                ),
+            ])
         )
 
         summary_content.append(html.P(html.B("Click on any cell marker to view details"), className="mt-3"))
@@ -885,8 +855,9 @@ def display_selected_cell(click_data, image_hash):
             # Find the cell in our data
             cell = next((c for c in cell_data if c["id"] == cell_id), None)
 
-            if not cell:
-                return html.Div(), html.P(f"Cell data not found for ID {cell_id}", className="text-muted")
+        # If no cell was found, show a placeholder.
+        if not cell:
+            return html.Div(), html.P(f"Cell data not found for ID {cell_id}", className="text-muted")
 
         # Get cropped image
         cell_id = str(cell["id"])
@@ -927,27 +898,22 @@ def display_selected_cell(click_data, image_hash):
             y1 = min(len(mask_data["mask"]), y1 + padding)
             x1 = min(len(mask_data["mask"][0]), x1 + padding)
 
-            x1 - x0
-            y1 - y0
-
             # Create a zoomed-in view of the cell
             cell_fig = go.Figure()
 
             # Add the original image
-            cell_fig.add_layout_image(
-                {
-                    "source": uncompressed_image,  # TODO: use encoded image
-                    "xref": "x",
-                    "yref": "y",
-                    "x": 0,
-                    "y": 0,
-                    "sizex": uncompressed_image.width,
-                    "sizey": uncompressed_image.height,
-                    "sizing": "stretch",
-                    "opacity": 1,
-                    "layer": "below",
-                }
-            )
+            cell_fig.add_layout_image({
+                "source": uncompressed_image,  # TODO: use encoded image
+                "xref": "x",
+                "yref": "y",
+                "x": 0,
+                "y": 0,
+                "sizex": uncompressed_image.width,
+                "sizey": uncompressed_image.height,
+                "sizing": "stretch",
+                "opacity": 1,
+                "layer": "below",
+            })
 
             # Draw a rectangle around the cell
             cell_fig.add_shape(
@@ -995,7 +961,7 @@ def display_selected_cell(click_data, image_hash):
             )
 
         # Create cell details with predicted properties
-        cell_details = [
+        cell_details: list = [
             html.H5(f"Cell {cell['id']} Details", style={"color": border_color}),
         ]
 
@@ -1026,29 +992,25 @@ def display_selected_cell(click_data, image_hash):
             )
 
         # Add cell metadata
-        cell_details.extend(
-            [
-                html.H6("Cell Metadata:", className="mt-3 mb-2"),
-                html.P(f"Area: {int(cell['area'])} pixels"),
-                html.P(f"Perimeter: {cell['perimeter']:.2f} pixels"),
-                html.P(f"Eccentricity: {cell['eccentricity']:.3f}"),
-                html.P(f"Centroid: ({cell['centroid_x']:.1f}, {cell['centroid_y']:.1f})"),
-            ]
-        )
+        cell_details.extend([
+            html.H6("Cell Metadata:", className="mt-3 mb-2"),
+            html.P(f"Area: {int(cell['area'])} pixels"),
+            html.P(f"Perimeter: {cell['perimeter']:.2f} pixels"),
+            html.P(f"Eccentricity: {cell['eccentricity']:.3f}"),
+            html.P(f"Centroid: ({cell['centroid_x']:.1f}, {cell['centroid_y']:.1f})"),
+        ])
 
         # Add size classification for non-classified cells
         if "predicted_class" not in predicted_props:
             is_large = cell["is_large"]
             cell_details.append(
-                html.P(
-                    [
-                        "Size Classification: ",
-                        html.Span(
-                            "Large" if is_large else "Small",
-                            style={"color": "green" if is_large else "red", "fontWeight": "bold"},
-                        ),
-                    ]
-                )
+                html.P([
+                    "Size Classification: ",
+                    html.Span(
+                        "Large" if is_large else "Small",
+                        style={"color": "green" if is_large else "red", "fontWeight": "bold"},
+                    ),
+                ])
             )
 
         return cell_image, cell_details

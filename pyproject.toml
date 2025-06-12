@@ -92,6 +92,8 @@ line-length = 120  # how long you want lines to be
 
 [tool.ruff.format]
 docstring-code-format = true  # code snippets in docstrings will be formatted
+preview = true
+
 
 [tool.ruff.lint]
 # For more strict linting and code simplifications, replace this with
