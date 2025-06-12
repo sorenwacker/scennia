@@ -1,6 +1,6 @@
 import argparse
-import time
 from dataclasses import dataclass, field
+from timeit import default_timer as timer
 
 import dash
 import dash_bootstrap_components as dbc
@@ -327,14 +327,23 @@ def display_uploaded_image(contents, filename):
     try:
         print(f"Processing uploaded file: {filename}")
 
-        # Decode and hash the uploaded image
+        # Decode uploaded image
+        decode_start = timer()
         image = decode_image(contents)
+        dash.callback_context.record_timing("decode", timer() - decode_start, "Decode uploaded image")
+
+        # Hash uploaded image
+        hash_start = timer()
         image_hash = calculate_image_hash(image)
+        dash.callback_context.record_timing("hash", timer() - hash_start, "Hash uploaded image")
 
         # Encode to WebP
+        encode_start = timer()
         encoded_image = encode_image(image)
+        dash.callback_context.record_timing("encode", timer() - encode_start, "Encode uploaded image")
 
         # Create a figure with just the original image
+        figure_start = timer()
         fig = go.Figure()
         fig.add_layout_image({
             "source": encoded_image.contents,
@@ -349,6 +358,7 @@ def display_uploaded_image(contents, filename):
             "layer": "below",
         })
         update_full_figure_layout(fig, image.width, image.height, False, False)
+        dash.callback_context.record_timing("figure", timer() - figure_start, "Create figure")
 
         # Update store
         IMAGE_DATA_STORE[image_hash] = ImageData(image, encoded_image)
@@ -405,12 +415,15 @@ def process_image(n_clicks, image_hash, show_annotations):
 
     image_data = IMAGE_DATA_STORE[image_hash]
 
-    start_time = time.time()
+    load_start = timer()
+    cached_data = get_processed_from_cache(image_hash)
+    dash.callback_context.record_timing("load_cache_data", timer() - load_start, "Read and deserialize cached data")
 
     # Check cache first
-    cached_data = get_processed_from_cache(image_hash)
     if cached_data:
         print("Using cached results")
+
+        processing_start = timer()
 
         # Create summary from cached data
         cell_props = cached_data["cell_data"]
@@ -432,9 +445,10 @@ def process_image(n_clicks, image_hash, show_annotations):
                 class_counts[predicted_class] = class_counts.get(predicted_class, 0) + 1
                 concentration_counts[concentration] = concentration_counts.get(concentration, 0) + 1
 
-        processing_time = time.time() - start_time
+        dash.callback_context.record_timing("total_processing", timer() - processing_start, "Total processing (cached)")
 
         # Create summary content
+        summary_start = timer()
         summary_content = [
             html.H5(f"Detected {len(cell_props)} cells (from cache)"),
             html.P(f"Median cell area: {median_area:.1f} pixels"),
@@ -518,12 +532,14 @@ def process_image(n_clicks, image_hash, show_annotations):
             )
 
         summary_content.extend([
-            html.P(f"Processing time: {processing_time:.2f} seconds (cached)", className="text-muted mt-2"),
             html.P(html.B("Click on any cell marker to view details"), className="mt-3"),
         ])
+        dash.callback_context.record_timing("summary", timer() - summary_start, "Create summary")
 
         # Create the figure with cell data
+        figure_start = timer()
         fig = create_complete_figure(image_data.encoded_image, cell_props, mask_data, show_annotations)
+        dash.callback_context.record_timing("figure", timer() - figure_start, "Create figure")
 
         # Update stores
         image_data.cell_data = cell_props
@@ -533,7 +549,7 @@ def process_image(n_clicks, image_hash, show_annotations):
             summary_content,
             fig,
             # Status alert
-            f"Processed image from cache: {len(cell_props)} cells detected in {processing_time:.2f} seconds",
+            f"Processed image from cache: {len(cell_props)} cells detected",
             "info",
             True,
         )
@@ -541,7 +557,7 @@ def process_image(n_clicks, image_hash, show_annotations):
     try:
         cellpose_model = model_manager.get_cellpose_model()
 
-        processing_start = time.time()
+        processing_start = timer()
 
         # Convert uncompressed image to array for processing
         image_array = np.asarray(image_data.uncompressed_image)
@@ -550,11 +566,11 @@ def process_image(n_clicks, image_hash, show_annotations):
         flow_threshold = 0.4  # Default value
         cell_prob_threshold = 0.0  # Default value
 
-        segmentation_start = time.time()
+        segmentation_start = timer()
         result = cellpose_model.eval(
             [image_array], flow_threshold=flow_threshold, cellprob_threshold=cell_prob_threshold
         )
-        segmentation_time = time.time() - segmentation_start
+        dash.callback_context.record_timing("segmentation", timer() - segmentation_start, "Segmentation")
 
         mask = result[0][0]
         props = regionprops(mask)
@@ -567,9 +583,7 @@ def process_image(n_clicks, image_hash, show_annotations):
         predicted_properties = {}  # This will store all predicted properties
         cropped_uncompressed_images: dict[str, Image] = {}  # This will store cropped images
 
-        cropping_start = time.time()
-        classification_start = time.time()
-
+        crop_and_classify_start = timer()
         for i, prop in enumerate(props):
             cell_id = i + 1
             is_large = prop.area > median_area
@@ -620,10 +634,11 @@ def process_image(n_clicks, image_hash, show_annotations):
 
             cell_data.append(cell_props)
 
-        classification_time = time.time() - classification_start
-        cropping_time = time.time() - cropping_start
+        dash.callback_context.record_timing("crop_and_classify", timer() - crop_and_classify_start, "Crop and classify")
+        dash.callback_context.record_timing("total_processing", timer() - processing_start, "Total processing")
 
         # Store mask data
+        save_start = timer()
         mask_data = {
             "mask": mask.tolist(),
             "median_area": float(median_area),
@@ -631,11 +646,11 @@ def process_image(n_clicks, image_hash, show_annotations):
         }
 
         # Save to cache with predicted properties and cropped images
-        cache_start = time.time()
         save_processed_to_cache(image_hash, cell_data, mask_data, predicted_properties, cropped_uncompressed_images)
-        cache_time = time.time() - cache_start
+        dash.callback_context.record_timing("save_cache_data", timer() - save_start, "Serialize and write cache data")
 
         # Create summary content
+        summary_start = timer()
         class_counts = {}  # For all classes: {class_name: count}
         concentration_counts = {}  # For concentrations: {concentration: count}
         classification_available = False
@@ -649,8 +664,6 @@ def process_image(n_clicks, image_hash, show_annotations):
 
                 class_counts[predicted_class] = class_counts.get(predicted_class, 0) + 1
                 concentration_counts[concentration] = concentration_counts.get(concentration, 0) + 1
-
-        total_processing_time = time.time() - processing_start
 
         summary_content = [
             html.H5(f"Detected {len(cell_data)} cells"),
@@ -734,27 +747,13 @@ def process_image(n_clicks, image_hash, show_annotations):
                 ])
             )
 
-        # Add timing information
-        summary_content.append(
-            html.Div([
-                html.P("Processing times:", className="fw-bold mt-2 mb-1"),
-                html.Ul(
-                    [
-                        html.Li(f"Segmentation: {segmentation_time:.2f}s"),
-                        html.Li(f"Classification: {classification_time:.2f}s"),
-                        html.Li(f"Cropping: {cropping_time:.2f}s"),
-                        html.Li(f"Caching: {cache_time:.2f}s"),
-                        html.Li(f"Total: {total_processing_time:.2f}s"),
-                    ],
-                    className="small text-muted",
-                ),
-            ])
-        )
-
         summary_content.append(html.P(html.B("Click on any cell marker to view details"), className="mt-3"))
+        dash.callback_context.record_timing("summary", timer() - summary_start, "Create summary")
 
         # Create the figure with cell data
+        figure_start = timer()
         fig = create_complete_figure(image_data.encoded_image, cell_data, mask_data, show_annotations)
+        dash.callback_context.record_timing("figure", timer() - figure_start, "Create figure")
 
         # Update stores
         image_data.cell_data = cell_data
@@ -764,7 +763,7 @@ def process_image(n_clicks, image_hash, show_annotations):
             summary_content,
             fig,
             # Status alert
-            f"Processed image: {len(cell_data)} cells detected in {total_processing_time:.2f} seconds",
+            f"Processed image: {len(cell_data)} cells detected",
             "success",
             True,
         )
@@ -802,6 +801,7 @@ def display_selected_cell(click_data, image_hash):
     cropped_encoded_images = image_data.cropped_encoded_images
     cell_data = image_data.cell_data
 
+    cell_start = timer()
     try:
         # Get click coordinates
         if "points" not in click_data or not click_data["points"] or len(click_data["points"]) == 0:
@@ -855,11 +855,14 @@ def display_selected_cell(click_data, image_hash):
             # Find the cell in our data
             cell = next((c for c in cell_data if c["id"] == cell_id), None)
 
+        dash.callback_context.record_timing("cell", timer() - cell_start, "Find cell")
+
         # If no cell was found, show a placeholder.
         if not cell:
             return html.Div(), html.P(f"Cell data not found for ID {cell_id}", className="text-muted")
 
         # Get cropped image
+        cropped_start = timer()
         cell_id = str(cell["id"])
         if cell_id in cropped_encoded_images:
             cropped_encoded_image = cropped_encoded_images[cell_id]
@@ -869,8 +872,10 @@ def display_selected_cell(click_data, image_hash):
             if cropped_encoded_image:
                 # Update store
                 cropped_encoded_images[cell_id] = cropped_encoded_image
+        dash.callback_context.record_timing("get_cropped", timer() - cropped_start, "Get cropped image")
 
         # Determine border color based on prediction or size
+        show_cropped_start = timer()
         predicted_props = cell.get("predicted_properties", {})
         if "concentration" in predicted_props:
             concentration = predicted_props.get("concentration", 0)
@@ -960,7 +965,10 @@ def display_selected_cell(click_data, image_hash):
                 figure=cell_fig, config={"displayModeBar": False}, style={"width": "100%", "height": "300px"}
             )
 
+        dash.callback_context.record_timing("show_cropped", timer() - show_cropped_start, "Show cropped image")
+
         # Create cell details with predicted properties
+        details_start = timer()
         cell_details: list = [
             html.H5(f"Cell {cell['id']} Details", style={"color": border_color}),
         ]
@@ -1012,6 +1020,8 @@ def display_selected_cell(click_data, image_hash):
                     ),
                 ])
             )
+
+        dash.callback_context.record_timing("details", timer() - details_start, "Create details")
 
         return cell_image, cell_details
 
