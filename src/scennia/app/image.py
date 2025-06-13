@@ -9,6 +9,7 @@ import numpy as np
 import plotly.graph_objects as go
 from PIL import Image
 from PIL.ImageFile import ImageFile
+from plotly.colors import hex_to_rgb
 
 
 def get_concentration_color(concentration):
@@ -179,7 +180,7 @@ def update_full_figure_layout(fig: go.Figure, width, height, has_cell_data=False
 
 
 # Create visualization with all elements
-def create_complete_figure(encoded_image: EncodedImage, cell_data=None, mask_data=None, show_annotations=True):
+def create_complete_figure(encoded_image: EncodedImage, cell_data=None, show_annotations=True):
     """Create a complete figure with all elements, with annotations visible based on show_annotations"""
 
     try:
@@ -201,24 +202,7 @@ def create_complete_figure(encoded_image: EncodedImage, cell_data=None, mask_dat
         })
 
         # Add cell overlays if data exists
-        if cell_data and mask_data:
-            # Add boundary points
-            boundary_points = np.array(np.where(np.array(mask_data["boundary"]))).T
-            if len(boundary_points) > 0:
-                boundary_y, boundary_x = boundary_points[:, 0], boundary_points[:, 1]
-                fig.add_trace(
-                    go.Scatter(
-                        x=boundary_x,
-                        y=boundary_y,
-                        mode="markers",
-                        marker={"color": "white", "size": 1},
-                        hoverinfo="none",
-                        showlegend=False,
-                        visible=show_annotations,
-                    )
-                )
-
-            # Add transparent cell centroids for clicking
+        if cell_data:
             for cell in cell_data:
                 predicted_props = cell.get("predicted_properties", {})
 
@@ -245,49 +229,39 @@ def create_complete_figure(encoded_image: EncodedImage, cell_data=None, mask_dat
                 hover_lines.append("<b>Click for details</b>")
                 hover_text = "<br>".join(hover_lines)
 
-                # Add centroid marker with good click/hover area
-                fig.add_trace(
-                    go.Scatter(
-                        x=[cell["centroid_x"]],
-                        y=[cell["centroid_y"]],
-                        mode="markers",
-                        marker={
-                            "size": max(20, np.sqrt(cell["area"]) / 3),  # Larger markers for better visibility
-                            "color": color,
-                            "opacity": 0.7,  # More visible
-                            "line": {"width": 2, "color": "white"},  # Add white border
-                            "symbol": "circle",  # Clear circle shape
-                        },
-                        name=f"Cell {cell['id']}",
-                        hoverinfo="text",
-                        hovertext=hover_text,
-                        customdata=[cell["id"]],  # Store cell ID for click events
-                        visible=show_annotations,
-                    )
-                )
+                # # Add cell ID and prediction as text annotation
+                # if "predicted_class" in predicted_props:
+                #     # Show cell ID and concentration
+                #     concentration = predicted_props.get("concentration", 0)
+                #     #annotation_text = f"{cell['id']}\n{concentration}"
+                # else:
+                #     # Fallback to cell ID and size classification
+                #     size_class = "L" if cell["is_large"] else "S"
+                #     annotation_text = f"{cell['id']}\n{size_class}"
 
-                # Add cell ID and prediction as text annotation
-                if "predicted_class" in predicted_props:
-                    # Show cell ID and concentration
-                    concentration = predicted_props.get("concentration", 0)
-                    annotation_text = f"{cell['id']}\n{concentration}"
-                else:
-                    # Fallback to cell ID and size classification
-                    size_class = "L" if cell["is_large"] else "S"
-                    annotation_text = f"{cell['id']}\n{size_class}"
-
-                fig.add_trace(
-                    go.Scatter(
-                        x=[cell["centroid_x"]],
-                        y=[cell["centroid_y"]],
-                        mode="text",
-                        text=annotation_text,
-                        textfont={"color": "white", "size": 9, "family": "Arial Black"},
-                        hoverinfo="none",
-                        showlegend=False,
-                        visible=show_annotations,
+                # Draw contours around cells with hover text and click events.
+                if len(cell["contour"]) > 0:
+                    (r, g, b) = hex_to_rgb(color)
+                    y, x = cell["contour"]
+                    fig.add_trace(
+                        go.Scatter(
+                            x=x,
+                            y=y,
+                            mode="lines",
+                            fill="toself",
+                            fillcolor=f"rgba({r},{g},{b},0.1)",
+                            line={"color": color},
+                            hoveron="fills",
+                            hoverinfo="text",
+                            hovertext=hover_text,
+                            # We need to use name instead of hovertext when using hoveron="fills".
+                            # See: https://stackoverflow.com/a/57937013
+                            name=hover_text,
+                            customdata=[cell["id"]],  # Store cell ID for click events
+                            showlegend=False,
+                            visible=show_annotations,
+                        )
                     )
-                )
 
         update_full_figure_layout(
             fig, encoded_image.width, encoded_image.height, cell_data is not None, show_annotations
@@ -301,14 +275,14 @@ def create_complete_figure(encoded_image: EncodedImage, cell_data=None, mask_dat
 
 
 # Create a cell crop, returning an uncompressed cropped image of the cell.
-def crop_cell(image: ImageFile, cell, mask_data, padding=10) -> Image.Image:
+def crop_cell(image: ImageFile, bbox: tuple[float, float, float, float], padding=10) -> Image.Image:
     # Get bounding box with padding
-    y0, x0, y1, x1 = cell["bbox"]
+    y0, x0, y1, x1 = bbox
     padding = 10
     y0 = max(0, y0 - padding)
     x0 = max(0, x0 - padding)
-    y1 = min(len(mask_data["mask"]), y1 + padding)
-    x1 = min(len(mask_data["mask"][0]), x1 + padding)
+    y1 = min(image.height, y1 + padding)
+    x1 = min(image.width, x1 + padding)
 
     # Create a cropped version
     image_array = np.asarray(image)

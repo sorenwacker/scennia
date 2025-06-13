@@ -13,7 +13,7 @@ from dash import DiskcacheManager, dcc, html
 from dash.dependencies import Input, Output, State
 from PIL.Image import Image
 from PIL.ImageFile import ImageFile
-from skimage.measure import regionprops
+from skimage.measure import find_contours, regionprops
 from skimage.segmentation import find_boundaries
 
 from scennia.app.image import (
@@ -554,7 +554,7 @@ def process_image(n_clicks, image_hash, show_annotations):
 
         # Create the figure with cell data
         figure_start = timer()
-        fig = create_complete_figure(image_data.encoded_image, cell_props, mask_data, show_annotations)
+        fig = create_complete_figure(image_data.encoded_image, cell_props, show_annotations)
         dash.callback_context.record_timing("figure", timer() - figure_start, "Create figure")
 
         # Update stores
@@ -576,7 +576,8 @@ def process_image(n_clicks, image_hash, show_annotations):
         processing_start = timer()
 
         # Convert uncompressed image to array for processing
-        image_array = np.asarray(image_data.uncompressed_image)
+        uncompressed_image = image_data.uncompressed_image
+        image_array = np.asarray(uncompressed_image)
 
         # Process with cellpose (using default values)
         flow_threshold = 0.4  # Default value
@@ -617,8 +618,11 @@ def process_image(n_clicks, image_hash, show_annotations):
                 "is_large": bool(is_large),
             }
 
+            # Contour
+            cell_props["contour"] = find_contours(mask == cell_id)[0].T.tolist()
+
             # Crop cell
-            cropped_uncompressed_image = crop_cell(image_data.uncompressed_image, cell_props, {"mask": mask})
+            cropped_uncompressed_image = crop_cell(uncompressed_image, cell_props["bbox"])
             cropped_uncompressed_images[str(cell_id)] = cropped_uncompressed_image
 
             # Perform classification if model is available
@@ -768,7 +772,7 @@ def process_image(n_clicks, image_hash, show_annotations):
 
         # Create the figure with cell data
         figure_start = timer()
-        fig = create_complete_figure(image_data.encoded_image, cell_data, mask_data, show_annotations)
+        fig = create_complete_figure(image_data.encoded_image, cell_data, show_annotations)
         dash.callback_context.record_timing("figure", timer() - figure_start, "Create figure")
 
         # Update stores
@@ -909,15 +913,14 @@ def display_selected_cell(click_data, image_hash):
             print("Creating cropped image dynamically (fallback)")
 
             uncompressed_image = image_data.uncompressed_image
-            mask_data = image_data.mask_data
 
             # Create the cropped image dynamically (fallback)
             y0, x0, y1, x1 = cell["bbox"]
             padding = 10
             y0 = max(0, y0 - padding)
             x0 = max(0, x0 - padding)
-            y1 = min(len(mask_data["mask"]), y1 + padding)
-            x1 = min(len(mask_data["mask"][0]), x1 + padding)
+            y1 = min(uncompressed_image.height, y1 + padding)
+            x1 = min(uncompressed_image.width, x1 + padding)
 
             # Create a zoomed-in view of the cell
             cell_fig = go.Figure()
@@ -929,8 +932,8 @@ def display_selected_cell(click_data, image_hash):
                 "yref": "y",
                 "x": 0,
                 "y": 0,
-                "sizex": uncompressed_image.width,
-                "sizey": uncompressed_image.height,
+                "sizex": x1 - x0,
+                "sizey": y1 - y0,
                 "sizing": "stretch",
                 "opacity": 1,
                 "layer": "below",
