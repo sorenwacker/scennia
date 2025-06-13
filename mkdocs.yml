@@ -2,7 +2,7 @@ site_name: Documentation
 
 nav:
   - Home: index.md
-  - Model train pipeline: train_model.md
+  - Model training diagram: train_model.md
 
 theme: material
 
@@ -20,4 +20,3 @@ markdown_extensions:
       custom_fences:
         - name: mermaid
           class: mermaid
-          format: !!python/name:pymdownx.superfences.fence_code_format
