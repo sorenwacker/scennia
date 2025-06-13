@@ -1,5 +1,5 @@
 
-``` mermaid
+```mermaid
 graph TD
     A[CSV Dataset] --> B[CellDataModule]
     B --> C[Data Processing & Class Labels]
