@@ -1,5 +1,5 @@
 """
-scennia: Code for SCENNIA project.
+Code for SCENNIA project.
 """
 
 from __future__ import annotations
