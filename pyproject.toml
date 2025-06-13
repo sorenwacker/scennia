@@ -85,7 +85,7 @@ port.exclude_lines = [
 
 [tool.ruff]
 src = ["src"]
-exclude = ["mkdocs.yml"]
+exclude = []
 line-length = 120  # how long you want lines to be
 
 [tool.ruff.format]
