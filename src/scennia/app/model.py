@@ -3,7 +3,6 @@ import os
 
 import numpy as np
 import onnxruntime as ort
-from cellpose import models
 from PIL.Image import Image
 from torchvision import transforms
 
@@ -132,6 +131,8 @@ class ModelManager:
         return self.onnx_classification_model is not None and self.onnx_transform_for_classification is not None
 
     def get_cellpose_model(self):
+        from cellpose import models
+
         if self.cellpose_model:
             return self.cellpose_model
         # Load cellpose model

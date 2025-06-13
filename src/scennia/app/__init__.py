@@ -1053,14 +1053,18 @@ def display_selected_cell(click_data, image_hash):
 def main():
     parser = argparse.ArgumentParser(description="Cell Analysis App with Lactate Classification")
     parser.add_argument("--model_path", type=str, default=None, help="Path to ONNX classification model")
+    parser.add_argument("--lazy_load", action="store_true", help="Lazily load ONNX classification model")
     parser.add_argument("--port", type=int, default=7860, help="Port to run the app on")
     parser.add_argument("--debug", action="store_true", help="Run in debug mode")
 
     args = parser.parse_args()
 
-    # Load classification model if provided
+    # Set model path if provided
     if args.model_path:
         model_manager.set_onnx_model_path(args.model_path)
+
+    # Load classification model eagerly
+    if args.model_path and not args.lazy_load:
         success = model_manager.load_onnx_model_if_needed()
         if success:
             print(f"Successfully loaded classification model from {args.model_path}")
