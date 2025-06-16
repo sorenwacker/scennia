@@ -132,7 +132,7 @@ class DiskCache:
         images = []
         for p in os.listdir(self.CACHE_DIR):
             path = join(self.CACHE_DIR, p)
-            hash, ext = splitext(path)
+            hash, ext = splitext(p)
             try:
                 if isfile(path) and ext == ".webp":
                     image = Image.open(path)

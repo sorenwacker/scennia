@@ -8,12 +8,12 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from dash import DiskcacheManager, dcc, html
+from dash import DiskcacheManager, ctx, dcc, html
 from dash.dependencies import Input, Output, State
 from PIL.Image import Image
 from skimage.measure import find_contours, regionprops
 
-from scennia.app.data import AggregateData, Cell, DiskCache, ImageData
+from scennia.app.data import AggregateData, Cell, DiskCache, ImageData, ImageWithHash
 from scennia.app.image import (
     calculate_image_hash,
     create_complete_figure,
@@ -67,6 +67,24 @@ app.clientside_callback(
 )
 
 
+cell_info_placeholder = html.P(
+    "Process an image and then click on a cell to view details",
+    className="text-muted m-0",
+)
+cell_info_processed_placeholder = html.P(
+    "Click on a cell to view details",
+    className="text-muted m-0",
+)
+summary_placeholder = html.P(
+    "Upload and process an image to view the summary",
+    className="text-muted m-0",
+)
+summary_uploaded_placeholder = html.P(
+    "Process an image to view the summary",
+    className="text-muted m-0",
+)
+
+
 # App layout
 def layout():
     title = [
@@ -90,7 +108,7 @@ def layout():
                         className="mh-100",  # Align spinner by setting height to 100% even with no content
                         children=dbc.Row(
                             id="images",
-                            className="flex-nowrap",
+                            className="flex-nowrap overflow-x-scroll",
                         ),
                     ),
                 ],
@@ -185,17 +203,7 @@ def layout():
                     type="circle",
                     show_initially=False,
                     className="mh-100",  # Align spinner by setting height to 100% even with no content
-                    children=[
-                        html.Div(
-                            id="summary",
-                            children=[
-                                html.P(
-                                    "Upload and process an image",
-                                    className="text-muted m-0",
-                                ),
-                            ],
-                        ),
-                    ],
+                    children=[html.Div(id="summary", children=summary_placeholder)],
                 ),
             ),
         ],
@@ -209,23 +217,13 @@ def layout():
                     id="loading-cell-info",
                     type="circle",
                     show_initially=False,
-                    delay_show=250,
+                    delay_show=3000,  # Delay showing spinner since loading is usually fast
                     className="mh-100",  # Align spinner by setting height to 100% even with no content
                     overlay_style={
                         "visibility": "visible",
                         "filter": "blur(3px) opacity(25%)",
                     },
-                    children=[
-                        html.Div(
-                            id="cell-info",
-                            children=[
-                                html.P(
-                                    "Process an image and then click on a cell to view details",
-                                    className="text-muted m-0",
-                                ),
-                            ],
-                        ),
-                    ],
+                    children=[html.Div(id="cell-info", children=cell_info_placeholder)],
                 ),
             ]),
         ],
@@ -322,6 +320,7 @@ def display_model_status(_):
 
 
 # Server-side stores
+IMAGES_STORE: dict[int, ImageWithHash] = {}
 IMAGE_DATA_STORE: dict[str, ImageData] = {}
 # Disk cache
 DISK_CACHE = DiskCache()
@@ -336,18 +335,98 @@ DISK_CACHE = DiskCache()
 def display_images(_):
     images = DISK_CACHE.load_compressed_images()
     children = []
+    i = 0
     for image_with_hash in images:
+        IMAGES_STORE[i] = image_with_hash
         encoded = encode_image(image_with_hash.image)
-        col = dbc.Col(className="col-2", children=html.Img(src=encoded.contents, className="mw-100"))
+        col = dbc.Col(
+            className="col-2",
+            children=dbc.Button(
+                id={
+                    "type": "image-button",
+                    "index": i,
+                },
+                className="btn-link",
+                children=html.Img(src=encoded.contents, className="mw-100"),
+            ),
+        )
         children.append(col)
+        i = i + 1
     return children
+
+
+# Display clicked image
+@app.callback(
+    [
+        Output("image-analysis", "figure", allow_duplicate=True),
+        Output("summary", "children", allow_duplicate=True),
+        Output("image-filename", "children", allow_duplicate=True),
+        Output("cell-info", "children", allow_duplicate=True),
+        Output("image-hash-store", "data", allow_duplicate=True),
+    ],
+    Input({"type": "image-button", "index": dash.ALL}, "n_clicks"),
+    background=False,
+    running=[  # Disable upload and process while processing.
+        (Output("upload-image", "disabled"), True, False),
+        (Output("process-button", "disabled"), True, False),
+    ],
+    prevent_initial_call=True,
+)
+def display_clicked_image(_):
+    index = ctx.triggered_id["index"]  # type: ignore  # noqa: PGH003
+
+    # Prevent update at application start
+    clicks = ctx.triggered[-1]["value"]
+    if clicks is None or clicks == 0:
+        raise dash.exceptions.PreventUpdate
+
+    image_with_hash = IMAGES_STORE[index]
+    image = image_with_hash.image
+    image_hash = image_with_hash.hash
+    print(f"Clicked ({clicks} times) image: {index} with hash {image_hash}")
+
+    # Encode to WebP
+    encode_start = timer()
+    encoded_image = encode_image(image)
+    dash.callback_context.record_timing("encode", timer() - encode_start, "Encode uploaded image")
+
+    # Create a figure with just the original image
+    figure_start = timer()
+    fig = go.Figure()
+    fig.add_layout_image({
+        "source": encoded_image.contents,
+        "xref": "x",
+        "yref": "y",
+        "x": 0,
+        "y": 0,
+        "sizex": encoded_image.width,
+        "sizey": encoded_image.height,
+        "sizing": "stretch",  # Use stretch for pixel-perfect mapping
+        "opacity": 1,
+        "layer": "below",
+    })
+    update_full_figure_layout(fig, image.width, image.height, False, False)
+    dash.callback_context.record_timing("figure", timer() - figure_start, "Create figure")
+
+    # Update store
+    IMAGE_DATA_STORE[image_hash] = ImageData(image, encoded_image)
+
+    return (
+        fig,
+        summary_uploaded_placeholder,
+        "",
+        cell_info_placeholder,
+        image_hash,
+    )
 
 
 # Display uploaded image
 @app.callback(
     [
         Output("image-analysis", "figure", allow_duplicate=True),
-        Output("image-filename", "children"),
+        Output("summary", "children", allow_duplicate=True),
+        Output("image-filename", "children", allow_duplicate=True),
+        Output("cell-info", "children", allow_duplicate=True),
         Output("image-hash-store", "data"),
         Output("image-load-alert", "children"),
         Output("image-load-alert", "color"),
@@ -366,7 +445,7 @@ def display_uploaded_image(contents, filename):
     print(f"Upload callback triggered. Contents: {'Present' if contents else 'None'}, Filename: {filename}")
 
     if contents is None:
-        return html.Div("Upload an image"), "", None, None, None
+        return dash.no_update, summary_placeholder, None, cell_info_placeholder, None, None, None, None
 
     try:
         print(f"Processing uploaded file: {filename}")
@@ -412,7 +491,9 @@ def display_uploaded_image(contents, filename):
 
         return (
             fig,
+            summary_uploaded_placeholder,
             f"File: {filename}",
+            cell_info_placeholder,
             image_hash,
             # Status alert
             f"Image loaded successfully: {filename}",
@@ -425,8 +506,9 @@ def display_uploaded_image(contents, filename):
 
         return (
             html.Div("Error displaying image"),
-            "",
+            summary_placeholder,
             None,
+            cell_info_placeholder,
             None,
             # Status alert
             f"Error displaying image: {e!s}",
@@ -438,8 +520,9 @@ def display_uploaded_image(contents, filename):
 # Process image and check cache
 @app.callback(
     [
-        Output("summary", "children"),
         Output("image-analysis", "figure", allow_duplicate=True),
+        Output("summary", "children", allow_duplicate=True),
+        Output("cell-info", "children", allow_duplicate=True),
         Output("image-process-alert", "children"),
         Output("image-process-alert", "color"),
         Output("image-process-alert", "is_open"),
@@ -458,7 +541,7 @@ def display_uploaded_image(contents, filename):
 )
 def process_image(n_clicks, image_hash, show_annotations):
     if n_clicks is None or image_hash is None or image_hash not in IMAGE_DATA_STORE:
-        return (None, None, html.P("Upload an image and click 'Process Image'"), dash.no_update, None, dash.no_update)
+        return dash.no_update, summary_uploaded_placeholder, cell_info_placeholder, None, None, None
 
     image_data = IMAGE_DATA_STORE[image_hash]
 
@@ -592,8 +675,9 @@ def process_image(n_clicks, image_hash, show_annotations):
         image_data.aggregate_data = aggregate_data
 
         return (
-            summary_content,
             fig,
+            summary_content,
+            cell_info_processed_placeholder,
             # Status alert
             f"Processed image from cache: {len(cells)} cells detected",
             "info",
@@ -800,8 +884,9 @@ def process_image(n_clicks, image_hash, show_annotations):
         image_data.aggregate_data = aggregate_data
 
         return (
-            summary_content,
             fig,
+            summary_content,
+            cell_info_processed_placeholder,
             # Status alert
             f"Processed image: {len(cells)} cells detected",
             "success",
@@ -813,10 +898,8 @@ def process_image(n_clicks, image_hash, show_annotations):
 
         return (
             None,
-            None,
-            html.P(f"Error processing image: {e!s}"),
-            dash.no_update,
-            None,
+            summary_uploaded_placeholder,
+            cell_info_placeholder,
             # Status alert
             f"Error processing image: {e!s}",
             "danger",
@@ -826,7 +909,7 @@ def process_image(n_clicks, image_hash, show_annotations):
 
 # Callback to show cell details when clicked
 @app.callback(
-    Output("cell-info", "children"),
+    Output("cell-info", "children", allow_duplicate=True),
     Input("image-analysis", "clickData"),
     [
         State("image-hash-store", "data"),
