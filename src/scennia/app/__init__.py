@@ -1,5 +1,4 @@
 import argparse
-from dataclasses import dataclass, field
 from timeit import default_timer as timer
 
 import dash
@@ -12,21 +11,16 @@ import plotly.graph_objects as go
 from dash import DiskcacheManager, dcc, html
 from dash.dependencies import Input, Output, State
 from PIL.Image import Image
-from PIL.ImageFile import ImageFile
 from skimage.measure import find_contours, regionprops
-from skimage.segmentation import find_boundaries
 
+from scennia.app.data import AggregateData, Cell, DiskCache, ImageData
 from scennia.app.image import (
-    EncodedImage,
     calculate_image_hash,
     create_complete_figure,
     crop_cell,
     decode_image,
     encode_image,
-    get_compressed_cropped_image,
     get_concentration_color,
-    get_processed_from_cache,
-    save_processed_to_cache,
     update_full_figure_layout,
 )
 from scennia.app.model import model_manager
@@ -302,16 +296,9 @@ def display_model_status(_):
 
 
 # Server-side stores
-@dataclass
-class ImageData:
-    uncompressed_image: ImageFile
-    encoded_image: EncodedImage
-    cropped_encoded_images: dict[str, EncodedImage] = field(default_factory=dict)
-    cell_data: list = field(default_factory=list)
-    mask_data: dict = field(default_factory=dict)
-
-
 IMAGE_DATA_STORE: dict[str, ImageData] = {}
+# Disk cache
+DISK_CACHE = DiskCache()
 
 
 # Display uploaded image
@@ -431,7 +418,7 @@ def process_image(n_clicks, image_hash, show_annotations):
     image_data = IMAGE_DATA_STORE[image_hash]
 
     load_start = timer()
-    cached_data = get_processed_from_cache(image_hash)
+    cached_data = DISK_CACHE.load_data(image_hash)
     dash.callback_context.record_timing("load_cache_data", timer() - load_start, "Read and deserialize cached data")
 
     # Check cache first
@@ -441,17 +428,16 @@ def process_image(n_clicks, image_hash, show_annotations):
         processing_start = timer()
 
         # Create summary from cached data
-        cell_props = cached_data["cell_data"]
-        mask_data = cached_data["mask_data"]
-        median_area = mask_data["median_area"]
+        cells = cached_data.cells
+        aggregate_data = cached_data.aggregate_data
 
         # Count cells by classification if available
         class_counts = {}  # For all classes: {class_name: count}
         concentration_counts = {}  # For concentrations: {concentration: count}
         classification_available = False
 
-        for cell in cell_props:
-            predicted_props = cell.get("predicted_properties", {})
+        for cell in cells:
+            predicted_props = cell.predicted_properties
             if "predicted_class" in predicted_props:
                 classification_available = True
                 predicted_class = predicted_props["predicted_class"]
@@ -465,9 +451,9 @@ def process_image(n_clicks, image_hash, show_annotations):
         # Create summary content
         summary_start = timer()
         summary_content = [
-            html.H5(f"Detected {len(cell_props)} cells (from cache)"),
-            html.P(f"Median cell area: {median_area:.1f} pixels"),
-            html.P(f"Mean cell area: {np.mean([c['area'] for c in cell_props]):.1f} pixels"),
+            html.H5(f"Detected {len(cells)} cells (from cache)"),
+            html.P(f"Median cell area: {aggregate_data.median_area:.1f} pixels"),
+            html.P(f"Mean cell area: {np.mean([c.area for c in cells]):.1f} pixels"),
         ]
 
         if classification_available:
@@ -535,8 +521,8 @@ def process_image(n_clicks, image_hash, show_annotations):
                     )
                 )
         else:
-            large_cells = sum(c["is_large"] for c in cell_props)
-            small_cells = len(cell_props) - large_cells
+            large_cells = sum(c.is_large for c in cells)
+            small_cells = len(cells) - large_cells
             summary_content.append(
                 html.P([
                     "Cell count by size: ",
@@ -553,18 +539,18 @@ def process_image(n_clicks, image_hash, show_annotations):
 
         # Create the figure with cell data
         figure_start = timer()
-        fig = create_complete_figure(image_data.encoded_image, cell_props, show_annotations)
+        fig = create_complete_figure(image_data.encoded_image, cells, show_annotations)
         dash.callback_context.record_timing("figure", timer() - figure_start, "Create figure")
 
         # Update stores
-        image_data.cell_data = cell_props
-        image_data.mask_data = mask_data
+        image_data.cells = cells
+        image_data.aggregate_data = aggregate_data
 
         return (
             summary_content,
             fig,
             # Status alert
-            f"Processed image from cache: {len(cell_props)} cells detected",
+            f"Processed image from cache: {len(cells)} cells detected",
             "info",
             True,
         )
@@ -595,8 +581,7 @@ def process_image(n_clicks, image_hash, show_annotations):
         median_area = np.median([p.area for p in props]) if props else 0
 
         # Store cell properties in a suitable format
-        cell_data = []
-        predicted_properties = {}  # This will store all predicted properties
+        cells: list[Cell] = []
         cropped_uncompressed_images: dict[str, Image] = {}  # This will store cropped images
 
         crop_and_classify_start = timer()
@@ -605,23 +590,20 @@ def process_image(n_clicks, image_hash, show_annotations):
             is_large = prop.area > median_area
 
             # Create basic cell data first
-            cell_props = {
-                "id": cell_id,
-                "centroid_y": float(prop.centroid[0]),
-                "centroid_x": float(prop.centroid[1]),
-                "area": float(prop.area),
-                "perimeter": float(prop.perimeter),
-                "eccentricity": float(prop.eccentricity),
-                "bbox": [int(x) for x in prop.bbox],
-                "label": int(prop.label),
-                "is_large": bool(is_large),
-            }
-
-            # Contour
-            cell_props["contour"] = find_contours(mask == cell_id)[0].T.tolist()
+            cell = Cell(
+                id=cell_id,
+                centroid_y=float(prop.centroid[0]),
+                centroid_x=float(prop.centroid[1]),
+                area=float(prop.area),
+                perimeter=float(prop.perimeter),
+                eccentricity=float(prop.eccentricity),
+                bbox=[int(x) for x in prop.bbox],
+                contour=find_contours(mask == cell_id)[0].T.tolist(),
+                is_large=bool(is_large),
+            )
 
             # Crop cell
-            cropped_uncompressed_image = crop_cell(uncompressed_image, cell_props["bbox"])
+            cropped_uncompressed_image = crop_cell(uncompressed_image, cell.bbox)
             cropped_uncompressed_images[str(cell_id)] = cropped_uncompressed_image
 
             # Perform classification if model is available
@@ -648,25 +630,19 @@ def process_image(n_clicks, image_hash, show_annotations):
                 cell_prediction = {"size_pixels": float(prop.area)}
 
             # Store the predicted properties
-            predicted_properties[str(cell_id)] = cell_prediction
-            cell_props["predicted_properties"] = cell_prediction
+            cell.predicted_properties = cell_prediction
 
-            cell_data.append(cell_props)
+            cells.append(cell)
 
         dash.callback_context.record_timing("crop_and_classify", timer() - crop_and_classify_start, "Crop and classify")
         dash.callback_context.record_timing("total_processing", timer() - processing_start, "Total processing")
 
-        # Store mask data
+        # Save data and compressed cropped images to disk cache
         save_start = timer()
-        mask_data = {
-            "mask": mask.tolist(),
-            "median_area": float(median_area),
-            "boundary": find_boundaries(mask, mode="inner").tolist(),
-        }
-
-        # Save to cache with predicted properties and cropped images
-        save_processed_to_cache(image_hash, cell_data, mask_data, predicted_properties, cropped_uncompressed_images)
-        dash.callback_context.record_timing("save_cache_data", timer() - save_start, "Serialize and write cache data")
+        aggregate_data = AggregateData(median_area=float(median_area))
+        DISK_CACHE.save_data(image_hash, cells, aggregate_data)
+        DISK_CACHE.save_compressed_cropped_images(image_hash, cropped_uncompressed_images)
+        dash.callback_context.record_timing("save_cache_data", timer() - save_start, "Save cache data")
 
         # Create summary content
         summary_start = timer()
@@ -674,8 +650,8 @@ def process_image(n_clicks, image_hash, show_annotations):
         concentration_counts = {}  # For concentrations: {concentration: count}
         classification_available = False
 
-        for cell in cell_data:
-            predicted_props = cell.get("predicted_properties", {})
+        for cell in cells:
+            predicted_props = cell.predicted_properties
             if "predicted_class" in predicted_props:
                 classification_available = True
                 predicted_class = predicted_props["predicted_class"]
@@ -685,9 +661,9 @@ def process_image(n_clicks, image_hash, show_annotations):
                 concentration_counts[concentration] = concentration_counts.get(concentration, 0) + 1
 
         summary_content = [
-            html.H5(f"Detected {len(cell_data)} cells"),
+            html.H5(f"Detected {len(cells)} cells"),
             html.P(f"Median cell area: {median_area:.1f} pixels"),
-            html.P(f"Mean cell area: {np.mean([c['area'] for c in cell_data]):.1f} pixels"),
+            html.P(f"Mean cell area: {np.mean([c.area for c in cells]):.1f} pixels"),
         ]
 
         if classification_available:
@@ -755,8 +731,8 @@ def process_image(n_clicks, image_hash, show_annotations):
                     )
                 )
         else:
-            large_cells = sum(c["is_large"] for c in cell_data)
-            small_cells = len(cell_data) - large_cells
+            large_cells = sum(c.is_large for c in cells)
+            small_cells = len(cells) - large_cells
             summary_content.append(
                 html.P([
                     "Cell count by size: ",
@@ -771,18 +747,18 @@ def process_image(n_clicks, image_hash, show_annotations):
 
         # Create the figure with cell data
         figure_start = timer()
-        fig = create_complete_figure(image_data.encoded_image, cell_data, show_annotations)
+        fig = create_complete_figure(image_data.encoded_image, cells, show_annotations)
         dash.callback_context.record_timing("figure", timer() - figure_start, "Create figure")
 
         # Update stores
-        image_data.cell_data = cell_data
-        image_data.mask_data = mask_data
+        image_data.cells = cells
+        image_data.aggregate_data = aggregate_data
 
         return (
             summary_content,
             fig,
             # Status alert
-            f"Processed image: {len(cell_data)} cells detected",
+            f"Processed image: {len(cells)} cells detected",
             "success",
             True,
         )
@@ -818,7 +794,7 @@ def display_selected_cell(click_data, image_hash):
 
     image_data = IMAGE_DATA_STORE[image_hash]
     cropped_encoded_images = image_data.cropped_encoded_images
-    cell_data = image_data.cell_data
+    cells = image_data.cells
 
     cell_start = timer()
     try:
@@ -841,9 +817,9 @@ def display_selected_cell(click_data, image_hash):
             closest_cell = None
             min_distance = float("inf")
 
-            for cell in cell_data:
-                dx = cell["centroid_x"] - click_x
-                dy = cell["centroid_y"] - click_y
+            for cell in cells:
+                dx = cell.centroid_x - click_x
+                dy = cell.centroid_y - click_y
                 distance = dx * dx + dy * dy  # Squared distance is enough for comparison
 
                 if distance < min_distance:
@@ -872,7 +848,7 @@ def display_selected_cell(click_data, image_hash):
                 cell_id = customdata
 
             # Find the cell in our data
-            cell = next((c for c in cell_data if c["id"] == cell_id), None)
+            cell = next((c for c in cells if c.id == cell_id), None)
 
         dash.callback_context.record_timing("cell", timer() - cell_start, "Find cell")
 
@@ -882,11 +858,11 @@ def display_selected_cell(click_data, image_hash):
 
         # Get cropped image
         cropped_start = timer()
-        cell_id = str(cell["id"])
+        cell_id = str(cell.id)
         if cell_id in cropped_encoded_images:
             cropped_encoded_image = cropped_encoded_images[cell_id]
         else:
-            cropped_image = get_compressed_cropped_image(image_hash, cell_id)
+            cropped_image = DISK_CACHE.load_compressed_cropped_image(image_hash, cell_id)
             cropped_encoded_image = encode_image(cropped_image) if cropped_image else None
             if cropped_encoded_image:
                 # Update store
@@ -895,12 +871,12 @@ def display_selected_cell(click_data, image_hash):
 
         # Determine border color based on prediction or size
         show_cropped_start = timer()
-        predicted_props = cell.get("predicted_properties", {})
+        predicted_props = cell.predicted_properties
         if "concentration" in predicted_props:
             concentration = predicted_props.get("concentration", 0)
             border_color = get_concentration_color(concentration)
         else:
-            border_color = "green" if cell["is_large"] else "red"
+            border_color = "green" if cell.is_large else "red"
 
         if cropped_encoded_image:
             # Use the cached cropped image directly
@@ -914,7 +890,7 @@ def display_selected_cell(click_data, image_hash):
             uncompressed_image = image_data.uncompressed_image
 
             # Create the cropped image dynamically (fallback)
-            y0, x0, y1, x1 = cell["bbox"]
+            y0, x0, y1, x1 = cell.bbox
             padding = 10
             y0 = max(0, y0 - padding)
             x0 = max(0, x0 - padding)
@@ -988,7 +964,7 @@ def display_selected_cell(click_data, image_hash):
         # Create cell details with predicted properties
         details_start = timer()
         cell_details: list = [
-            html.H5(f"Cell {cell['id']} Details", style={"color": border_color}),
+            html.H5(f"Cell {cell.id} Details", style={"color": border_color}),
         ]
 
         # Add classification results if available
@@ -1010,7 +986,7 @@ def display_selected_cell(click_data, image_hash):
                     [
                         html.H6("Basic Prediction:", className="mt-3 mb-2"),
                         html.P(
-                            f"Size: {int(predicted_props.get('size_pixels', cell['area']))} pixels", className="fw-bold"
+                            f"Size: {int(predicted_props.get('size_pixels', cell.area))} pixels", className="fw-bold"
                         ),
                     ],
                     className="p-2 border rounded bg-light",
@@ -1020,15 +996,15 @@ def display_selected_cell(click_data, image_hash):
         # Add cell metadata
         cell_details.extend([
             html.H6("Cell Metadata:", className="mt-3 mb-2"),
-            html.P(f"Area: {int(cell['area'])} pixels"),
-            html.P(f"Perimeter: {cell['perimeter']:.2f} pixels"),
-            html.P(f"Eccentricity: {cell['eccentricity']:.3f}"),
-            html.P(f"Centroid: ({cell['centroid_x']:.1f}, {cell['centroid_y']:.1f})"),
+            html.P(f"Area: {int(cell.area)} pixels"),
+            html.P(f"Perimeter: {cell.perimeter:.2f} pixels"),
+            html.P(f"Eccentricity: {cell.eccentricity:.3f}"),
+            html.P(f"Centroid: ({cell.centroid_x:.1f}, {cell.centroid_y:.1f})"),
         ])
 
         # Add size classification for non-classified cells
         if "predicted_class" not in predicted_props:
-            is_large = cell["is_large"]
+            is_large = cell.is_large
             cell_details.append(
                 html.P([
                     "Size Classification: ",

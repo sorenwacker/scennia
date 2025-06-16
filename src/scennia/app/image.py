@@ -1,15 +1,14 @@
 import base64
 import hashlib
 import io
-import json
-import os
-from dataclasses import dataclass
 
 import numpy as np
 import plotly.graph_objects as go
 from PIL import Image
 from PIL.ImageFile import ImageFile
 from plotly.colors import hex_to_rgb
+
+from scennia.app.data import Cell, EncodedImage
 
 
 def get_concentration_color(concentration):
@@ -33,13 +32,6 @@ def decode_image(contents: str) -> ImageFile:
     return Image.open(io.BytesIO(decoded))
 
 
-@dataclass
-class EncodedImage:
-    contents: str
-    width: int
-    height: int
-
-
 # Encode image to base64
 def encode_image(image: Image.Image) -> EncodedImage:
     # Save to bytes buffer
@@ -48,69 +40,12 @@ def encode_image(image: Image.Image) -> EncodedImage:
     buffer.seek(0)
     # Convert to base64
     contents = f"data:image/webp;base64,{base64.b64encode(buffer.read()).decode()}"
-    return EncodedImage(contents, image.width, image.height)
+    return EncodedImage(contents=contents, width=image.width, height=image.height)
 
 
 # Calculate image hash for caching
 def calculate_image_hash(image: ImageFile) -> str:
     return hashlib.md5(image.tobytes()).hexdigest()
-
-
-# Simple file-based cache system
-CACHE_DIR = "cache"
-CROPPED_CACHE_DIR = os.path.join(CACHE_DIR, "cropped")
-os.makedirs(CACHE_DIR, exist_ok=True)
-os.makedirs(CROPPED_CACHE_DIR, exist_ok=True)
-
-
-# Check if result is in cache
-def get_processed_from_cache(image_hash: str):
-    cache_file = os.path.join(CACHE_DIR, f"{image_hash}.json")
-    if os.path.exists(cache_file):
-        try:
-            with open(cache_file) as f:
-                return json.load(f)
-        except Exception as e:
-            print(f"Error reading from cache: {e!s}")
-    return None
-
-
-# Save results to cache
-def save_processed_to_cache(
-    img_hash: str, cell_data, mask_data, predicted_properties, cropped_uncompressed_images: dict[str, Image.Image]
-):
-    cache_file = os.path.join(CACHE_DIR, f"{img_hash}.json")
-    try:
-        cache_data = {
-            "cell_data": cell_data,
-            "mask_data": mask_data,
-            "predicted_properties": predicted_properties,
-            # Don't include images in the main cache file as they can be large
-        }
-
-        with open(cache_file, "w") as f:
-            json.dump(cache_data, f)
-
-        # Compress and save cropped images separately - Fixed loop variable overwriting (PLW2901)
-        for cell_id, image in cropped_uncompressed_images.items():
-            path = os.path.join(CROPPED_CACHE_DIR, f"{img_hash}_{cell_id}.webp")
-            image.save(path)
-
-        return True
-    except Exception as e:
-        print(f"Error saving to cache: {e!s}")
-        return False
-
-
-# Get compressed cropped image from cache
-def get_compressed_cropped_image(image_hash: str, cell_id: str) -> ImageFile | None:
-    crop_file = os.path.join(CROPPED_CACHE_DIR, f"{image_hash}_{cell_id}.webp")
-    if os.path.exists(crop_file):
-        try:
-            return Image.open(crop_file)
-        except Exception as e:
-            print(f"Error reading cropped image from cache: {e!s}")
-    return None
 
 
 def update_full_figure_layout(fig: go.Figure, width, height, has_cell_data=False, show_annotations=True):
@@ -167,7 +102,7 @@ def update_full_figure_layout(fig: go.Figure, width, height, has_cell_data=False
 
 
 # Create visualization with all elements
-def create_complete_figure(encoded_image: EncodedImage, cell_data=None, show_annotations=True):
+def create_complete_figure(encoded_image: EncodedImage, cells: list[Cell] | None, show_annotations=True):
     """Create a complete figure with all elements, with annotations visible based on show_annotations"""
 
     try:
@@ -189,9 +124,9 @@ def create_complete_figure(encoded_image: EncodedImage, cell_data=None, show_ann
         })
 
         # Add cell overlays if data exists
-        if cell_data:
-            for cell in cell_data:
-                predicted_props = cell.get("predicted_properties", {})
+        if cells:
+            for cell in cells:
+                predicted_props = cell.predicted_properties
 
                 # Color cells based on concentration level (ordinal)
                 if "concentration" in predicted_props:
@@ -199,11 +134,11 @@ def create_complete_figure(encoded_image: EncodedImage, cell_data=None, show_ann
                     color = get_concentration_color(concentration)
                 else:
                     # Fallback to size-based coloring
-                    is_large = cell["is_large"]
+                    is_large = cell.is_large
                     color = "green" if is_large else "red"
 
                 # Create hover text with predicted properties
-                hover_lines = [f"<b>Cell {cell['id']}</b>"]
+                hover_lines = [f"<b>Cell {cell.id}</b>"]
 
                 if "predicted_class" in predicted_props:
                     hover_lines.append(f"Class: {predicted_props['predicted_class']}")
@@ -211,15 +146,15 @@ def create_complete_figure(encoded_image: EncodedImage, cell_data=None, show_ann
                     concentration = predicted_props.get("concentration", 0)
                     hover_lines.append(f"Concentration: {concentration}")
                 else:
-                    hover_lines.append(f"Size: {int(cell['area'])} pixels")
+                    hover_lines.append(f"Size: {int(cell.area)} pixels")
 
                 hover_lines.append("<b>Click for details</b>")
                 hover_text = "<br>".join(hover_lines)
 
                 # Draw contours around cells with hover text and click events.
-                if len(cell["contour"]) > 0:
+                if len(cell.contour) > 0:
                     (r, g, b) = hex_to_rgb(color)
-                    y, x = cell["contour"]
+                    y, x = cell.contour
                     fig.add_trace(
                         go.Scatter(
                             x=x,
@@ -235,15 +170,13 @@ def create_complete_figure(encoded_image: EncodedImage, cell_data=None, show_ann
                             # We need to use name instead of hovertext when using hoveron="fills".
                             # See: https://stackoverflow.com/a/57937013
                             name=hover_text,
-                            customdata=[cell["id"]],  # Store cell ID for click events
+                            customdata=[cell.id],  # Store cell ID for click events
                             showlegend=False,
                             visible=show_annotations,
                         )
                     )
 
-        update_full_figure_layout(
-            fig, encoded_image.width, encoded_image.height, cell_data is not None, show_annotations
-        )
+        update_full_figure_layout(fig, encoded_image.width, encoded_image.height, cells is not None, show_annotations)
 
         return fig
 
@@ -253,7 +186,7 @@ def create_complete_figure(encoded_image: EncodedImage, cell_data=None, show_ann
 
 
 # Create a cell crop, returning an uncompressed cropped image of the cell.
-def crop_cell(image: ImageFile, bbox: tuple[float, float, float, float], padding=10) -> Image.Image:
+def crop_cell(image: ImageFile, bbox: list[int], padding=10) -> Image.Image:
     # Get bounding box with padding
     y0, x0, y1, x1 = bbox
     padding = 10

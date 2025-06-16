@@ -26,6 +26,7 @@ dependencies = [
   "wandb~=0.19.11",
   "orjson~=3.10.18",
   "pillow~=11.2.1",
+  "pydantic>=2.11.5",
 ]
 
 [tool.uv]
