@@ -61,9 +61,9 @@ app.clientside_callback(
         return newFigure;
     }
     """,
-    Output("cell-visualization-graph", "figure"),
+    Output("image-analysis", "figure"),
     Input("show-annotations", "value"),
-    State("cell-visualization-graph", "figure"),
+    State("image-analysis", "figure"),
 )
 
 
@@ -78,24 +78,42 @@ def layout():
         ),
     ]
     images_card = dbc.Card(
-        style={"height": "100%"},
+        className="mh-100 h-100",
         children=[
             dbc.CardHeader("Images"),
-            dbc.CardBody([]),
+            dbc.CardBody(
+                children=[
+                    dcc.Loading(
+                        id="loading-image",
+                        type="circle",
+                        show_initially=True,
+                        className="mh-100",  # Align spinner by setting height to 100% even with no content
+                        children=dbc.Row(
+                            id="images",
+                            className="flex-nowrap",
+                        ),
+                    ),
+                ],
+            ),
         ],
     )
     image_upload_card = dbc.Card(
-        style={"height": "100%"},
+        className="mh-100 h-100",
         children=[
-            dbc.CardHeader("Image Upload"),
+            dbc.CardHeader(
+                children=dbc.Row([
+                    dbc.Col("Image Upload", className="col-auto"),
+                    dbc.Col(id="image-filename", className="col-auto"),
+                ])
+            ),
             dbc.CardBody([
                 dcc.Upload(
                     html.Div(["Drag and Drop or ", html.A("Select an Image")]),
                     id="upload-image",
                     style={
                         "width": "100%",
-                        "height": "60px",
-                        "lineHeight": "60px",
+                        "height": "66px",
+                        "lineHeight": "66px",
                         "borderWidth": "1px",
                         "borderStyle": "dashed",
                         "borderRadius": "5px",
@@ -104,7 +122,6 @@ def layout():
                     multiple=False,
                     accept="image/*",  # Accept only image files
                 ),
-                html.Div(id="upload-output"),
                 # Process button
                 dbc.Button(
                     "Process Image",
@@ -117,7 +134,7 @@ def layout():
         ],
     )
     image_analysis_card = dbc.Card(
-        style={"height": "100%"},
+        className="mh-100 h-100",
         children=[
             dbc.CardHeader(
                 children=dbc.Row(
@@ -138,16 +155,18 @@ def layout():
                 ),
             ),
             dbc.CardBody(
-                dcc.Loading(  # Loading spinner
-                    id="loading-visualization",
+                dcc.Loading(
+                    id="loading-image-analysis",
                     type="circle",
+                    show_initially=False,
                     overlay_style={
                         "visibility": "visible",
                         "filter": "blur(3px) opacity(25%)",
                     },
+                    className="mh-100",  # Align spinner by setting height to 100% even with no content
                     children=[
                         dcc.Graph(
-                            id="cell-visualization-graph",
+                            id="image-analysis",
                             figure=update_full_figure_layout(go.Figure(), 0, 0),
                             config={"displayModeBar": False, "staticPlot": False},
                             style={"width": "100%", "height": "100%"},
@@ -161,13 +180,20 @@ def layout():
         children=[
             dbc.CardHeader("Summary"),
             dbc.CardBody(
-                dcc.Loading(  # Loading spinner
+                dcc.Loading(
                     id="loading-summary",
                     type="circle",
+                    show_initially=False,
+                    className="mh-100",  # Align spinner by setting height to 100% even with no content
                     children=[
                         html.Div(
-                            html.P("Upload an image and it will be displayed immediately"),
-                            id="summary-panel",
+                            id="summary",
+                            children=[
+                                html.P(
+                                    "Upload and process an image",
+                                    className="text-muted m-0",
+                                ),
+                            ],
                         ),
                     ],
                 ),
@@ -175,29 +201,29 @@ def layout():
         ],
     )
     cell_info_card = dbc.Card(
-        style={"height": "100%"},
+        className="mh-100 h-100",
         children=[
             dbc.CardHeader("Cell Info"),
             dbc.CardBody([
-                # Cell image
-                dcc.Loading(  # Loading spinner
-                    id="loading-cell-image",
+                dcc.Loading(
+                    id="loading-cell-info",
                     type="circle",
+                    show_initially=False,
+                    delay_show=250,
+                    className="mh-100",  # Align spinner by setting height to 100% even with no content
                     overlay_style={
                         "visibility": "visible",
                         "filter": "blur(3px) opacity(25%)",
                     },
                     children=[
-                        html.Div(id="selected-cell-image", className="mb-3"),
-                    ],
-                ),
-                # Cell details
-                html.Div(
-                    id="selected-cell-details",
-                    children=[
-                        html.P(
-                            "Process an image and then click on a cell to view details",
-                            className="text-muted",
+                        html.Div(
+                            id="cell-info",
+                            children=[
+                                html.P(
+                                    "Process an image and then click on a cell to view details",
+                                    className="text-muted m-0",
+                                ),
+                            ],
                         ),
                     ],
                 ),
@@ -301,11 +327,27 @@ IMAGE_DATA_STORE: dict[str, ImageData] = {}
 DISK_CACHE = DiskCache()
 
 
+# Display images
+# Add callback for model status
+@app.callback(
+    Output("images", "children"),
+    Input("upload-image", "id"),  # Trigger on app load by using a static component ID
+)
+def display_images(_):
+    images = DISK_CACHE.load_compressed_images()
+    children = []
+    for image_with_hash in images:
+        encoded = encode_image(image_with_hash.image)
+        col = dbc.Col(className="col-2", children=html.Img(src=encoded.contents, className="mw-100"))
+        children.append(col)
+    return children
+
+
 # Display uploaded image
 @app.callback(
     [
-        Output("cell-visualization-graph", "figure", allow_duplicate=True),
-        Output("upload-output", "children"),
+        Output("image-analysis", "figure", allow_duplicate=True),
+        Output("image-filename", "children"),
         Output("image-hash-store", "data"),
         Output("image-load-alert", "children"),
         Output("image-load-alert", "color"),
@@ -324,7 +366,7 @@ def display_uploaded_image(contents, filename):
     print(f"Upload callback triggered. Contents: {'Present' if contents else 'None'}, Filename: {filename}")
 
     if contents is None:
-        return html.Div("Upload an image"), html.Div("No image uploaded yet"), None, None, None
+        return html.Div("Upload an image"), "", None, None, None
 
     try:
         print(f"Processing uploaded file: {filename}")
@@ -338,6 +380,9 @@ def display_uploaded_image(contents, filename):
         hash_start = timer()
         image_hash = calculate_image_hash(image)
         dash.callback_context.record_timing("hash", timer() - hash_start, "Hash uploaded image")
+
+        # Save image to disk cache, for images display.
+        DISK_CACHE.save_compressed_image(image_hash, image)
 
         # Encode to WebP
         encode_start = timer()
@@ -367,7 +412,7 @@ def display_uploaded_image(contents, filename):
 
         return (
             fig,
-            html.Div(f"Uploaded: {filename}"),
+            f"File: {filename}",
             image_hash,
             # Status alert
             f"Image loaded successfully: {filename}",
@@ -380,7 +425,7 @@ def display_uploaded_image(contents, filename):
 
         return (
             html.Div("Error displaying image"),
-            html.Div("Error processing upload"),
+            "",
             None,
             None,
             # Status alert
@@ -393,8 +438,8 @@ def display_uploaded_image(contents, filename):
 # Process image and check cache
 @app.callback(
     [
-        Output("summary-panel", "children"),
-        Output("cell-visualization-graph", "figure", allow_duplicate=True),
+        Output("summary", "children"),
+        Output("image-analysis", "figure", allow_duplicate=True),
         Output("image-process-alert", "children"),
         Output("image-process-alert", "color"),
         Output("image-process-alert", "is_open"),
@@ -781,8 +826,8 @@ def process_image(n_clicks, image_hash, show_annotations):
 
 # Callback to show cell details when clicked
 @app.callback(
-    [Output("selected-cell-image", "children"), Output("selected-cell-details", "children")],
-    Input("cell-visualization-graph", "clickData"),
+    Output("cell-info", "children"),
+    Input("image-analysis", "clickData"),
     [
         State("image-hash-store", "data"),
     ],
@@ -963,13 +1008,14 @@ def display_selected_cell(click_data, image_hash):
 
         # Create cell details with predicted properties
         details_start = timer()
-        cell_details: list = [
+        cell_info: list = [
+            cell_image,
             html.H5(f"Cell {cell.id} Details", style={"color": border_color}),
         ]
 
         # Add classification results if available
         if "predicted_class" in predicted_props:
-            cell_details.append(
+            cell_info.append(
                 html.Div(
                     [
                         html.H6("Classification Results:", className="mt-3 mb-2"),
@@ -981,7 +1027,7 @@ def display_selected_cell(click_data, image_hash):
                 )
             )
         else:
-            cell_details.append(
+            cell_info.append(
                 html.Div(
                     [
                         html.H6("Basic Prediction:", className="mt-3 mb-2"),
@@ -994,7 +1040,7 @@ def display_selected_cell(click_data, image_hash):
             )
 
         # Add cell metadata
-        cell_details.extend([
+        cell_info.extend([
             html.H6("Cell Metadata:", className="mt-3 mb-2"),
             html.P(f"Area: {int(cell.area)} pixels"),
             html.P(f"Perimeter: {cell.perimeter:.2f} pixels"),
@@ -1005,7 +1051,7 @@ def display_selected_cell(click_data, image_hash):
         # Add size classification for non-classified cells
         if "predicted_class" not in predicted_props:
             is_large = cell.is_large
-            cell_details.append(
+            cell_info.append(
                 html.P([
                     "Size Classification: ",
                     html.Span(
@@ -1017,7 +1063,7 @@ def display_selected_cell(click_data, image_hash):
 
         dash.callback_context.record_timing("details", timer() - details_start, "Create details")
 
-        return cell_image, cell_details
+        return cell_info
 
     except Exception as e:
         import traceback
@@ -1025,7 +1071,7 @@ def display_selected_cell(click_data, image_hash):
         traceback_str = traceback.format_exc()
         print(f"Error in display_selected_cell: {e!s}")
         print(traceback_str)
-        return html.Div(), html.P(f"Error: {e!s}", className="text-danger")
+        return html.P(f"Error: {e!s}", className="text-danger")
 
 
 def main():

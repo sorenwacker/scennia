@@ -1,5 +1,6 @@
 import os
 from dataclasses import dataclass, field
+from os.path import exists, isfile, join, splitext
 
 from PIL import Image
 from PIL.ImageFile import ImageFile
@@ -44,19 +45,25 @@ class DiskCacheData(BaseModel):
     aggregate_data: AggregateData = field(default_factory=AggregateData)
 
 
+@dataclass
+class ImageWithHash:
+    image: ImageFile
+    hash: str
+
+
 # Simple file-based cache system
 class DiskCache:
     def __init__(self):
         self.CACHE_DIR = "cache"
-        self.CROPPED_CACHE_DIR = os.path.join(self.CACHE_DIR, "cropped")
+        self.CROPPED_CACHE_DIR = join(self.CACHE_DIR, "cropped")
         os.makedirs(self.CACHE_DIR, exist_ok=True)
         os.makedirs(self.CROPPED_CACHE_DIR, exist_ok=True)
 
     # Load result from disk cache
     def load_data(self, image_hash: str) -> DiskCacheData | None:
-        cache_file = os.path.join(self.CACHE_DIR, f"{image_hash}.json")
+        cache_file = join(self.CACHE_DIR, f"{image_hash}.json")
         try:
-            if os.path.exists(cache_file):
+            if exists(cache_file):
                 with open(cache_file) as f:
                     return DiskCacheData.model_validate(from_json(f.read()))
         except Exception as e:
@@ -69,7 +76,7 @@ class DiskCache:
         json = to_json(data, indent=2)
         try:
             os.makedirs(self.CACHE_DIR, exist_ok=True)
-            cache_file = os.path.join(self.CACHE_DIR, f"{image_hash}.json")
+            cache_file = join(self.CACHE_DIR, f"{image_hash}.json")
             with open(cache_file, "wb") as f:
                 f.write(json)
             return True
@@ -77,24 +84,59 @@ class DiskCache:
             print(f"Error saving data to disk cache: {e!s}")
             return False
 
-    # Load compressed cropped image from disk cache
-    def load_compressed_cropped_image(self, image_hash: str, cell_id: str) -> ImageFile | None:
-        crop_file = os.path.join(self.CROPPED_CACHE_DIR, f"{image_hash}_{cell_id}.webp")
+    # Load compressed image from disk cache
+    def load_compressed_image(self, image_hash: str) -> ImageFile | None:
+        crop_file = join(self.CACHE_DIR, f"{image_hash}.webp")
         try:
-            if os.path.exists(crop_file):
+            if exists(crop_file):
                 return Image.open(crop_file)
         except Exception as e:
             print(f"Error loading compressed cropped image from disk cache: {e!s}")
         return None
 
-    # Save compressed images to disk cache
+    # Save compressed image to disk cache
+    def save_compressed_image(self, image_hash: str, image: Image.Image):
+        try:
+            os.makedirs(self.CACHE_DIR, exist_ok=True)
+            path = join(self.CACHE_DIR, f"{image_hash}.webp")
+            image.save(path)
+            return True
+        except Exception as e:
+            print(f"Error saving compressed cropped image to disk cache: {e!s}")
+            return False
+
+    # Load compressed cropped image from disk cache
+    def load_compressed_cropped_image(self, image_hash: str, cell_id: str) -> ImageFile | None:
+        crop_file = join(self.CROPPED_CACHE_DIR, f"{image_hash}_{cell_id}.webp")
+        try:
+            if exists(crop_file):
+                return Image.open(crop_file)
+        except Exception as e:
+            print(f"Error loading compressed cropped image from disk cache: {e!s}")
+        return None
+
+    # Save compressed cropped images to disk cache
     def save_compressed_cropped_images(self, image_hash: str, cropped_uncompressed_images: dict[str, Image.Image]):
         try:
             os.makedirs(self.CROPPED_CACHE_DIR, exist_ok=True)
             for cell_id, image in cropped_uncompressed_images.items():
-                path = os.path.join(self.CROPPED_CACHE_DIR, f"{image_hash}_{cell_id}.webp")
+                path = join(self.CROPPED_CACHE_DIR, f"{image_hash}_{cell_id}.webp")
                 image.save(path)
             return True
         except Exception as e:
             print(f"Error saving compressed cropped image to disk cache: {e!s}")
             return False
+
+    # Load compressed image from disk cache
+    def load_compressed_images(self) -> list[ImageWithHash]:
+        images = []
+        for p in os.listdir(self.CACHE_DIR):
+            path = join(self.CACHE_DIR, p)
+            hash, ext = splitext(path)
+            try:
+                if isfile(path) and ext == ".webp":
+                    image = Image.open(path)
+                    images.append(ImageWithHash(image=image, hash=hash))
+            except Exception as e:
+                print(f"Error loading compressed image from disk cache: {e!s}; skipping")
+        return images
