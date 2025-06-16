@@ -151,7 +151,7 @@ In short, they boil down to running:
     uv build
     ```
 
-2. Upload the wheel to PyPI
+2. Upload the wheel to PyPI ()
 
     ```bash
     uv publish
