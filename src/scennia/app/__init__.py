@@ -25,7 +25,6 @@ from scennia.app.image import (
     encode_image,
     get_compressed_cropped_image,
     get_concentration_color,
-    get_concentration_color_plotly,
     get_processed_from_cache,
     save_processed_to_cache,
     update_full_figure_layout,
@@ -496,7 +495,7 @@ def process_image(n_clicks, image_hash, show_annotations):
                         "Class": class_name,
                         "Concentration": concentration,
                         "Count": count,
-                        "Color": get_concentration_color_plotly(concentration),
+                        "Color": get_concentration_color(concentration),
                     })
 
                 df_plot = pd.DataFrame(plot_data)
@@ -716,7 +715,7 @@ def process_image(n_clicks, image_hash, show_annotations):
                         "Class": class_name,
                         "Concentration": concentration,
                         "Count": count,
-                        "Color": get_concentration_color_plotly(concentration),
+                        "Color": get_concentration_color(concentration),
                     })
 
                 df_plot = pd.DataFrame(plot_data)

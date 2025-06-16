@@ -26,19 +26,6 @@ def get_concentration_color(concentration):
     return color_map.get(concentration, "#808080")  # Gray for unknown
 
 
-def get_concentration_color_plotly(concentration):
-    """Get plotly-compatible color for concentration level"""
-    color_map = {
-        0: "#e6f3ff",  # Very light blue (control)
-        5: "#b3d9ff",  # Light blue
-        10: "#80bfff",  # Medium blue
-        20: "#4da6ff",  # Blue
-        40: "#ff8000",  # Orange
-        80: "#ff0000",  # Red
-    }
-    return color_map.get(concentration, "#808080")  # Gray for unknown
-
-
 # Decode image from base64
 def decode_image(contents: str) -> ImageFile:
     _, content_string = contents.split(",")
@@ -229,16 +216,6 @@ def create_complete_figure(encoded_image: EncodedImage, cell_data=None, show_ann
                 hover_lines.append("<b>Click for details</b>")
                 hover_text = "<br>".join(hover_lines)
 
-                # # Add cell ID and prediction as text annotation
-                # if "predicted_class" in predicted_props:
-                #     # Show cell ID and concentration
-                #     concentration = predicted_props.get("concentration", 0)
-                #     #annotation_text = f"{cell['id']}\n{concentration}"
-                # else:
-                #     # Fallback to cell ID and size classification
-                #     size_class = "L" if cell["is_large"] else "S"
-                #     annotation_text = f"{cell['id']}\n{size_class}"
-
                 # Draw contours around cells with hover text and click events.
                 if len(cell["contour"]) > 0:
                     (r, g, b) = hex_to_rgb(color)
@@ -253,6 +230,7 @@ def create_complete_figure(encoded_image: EncodedImage, cell_data=None, show_ann
                             line={"color": color},
                             hoveron="fills",
                             hoverinfo="text",
+                            hoverlabel={"bgcolor": f"rgba({r},{g},{b},0.5)"},
                             hovertext=hover_text,
                             # We need to use name instead of hovertext when using hoveron="fills".
                             # See: https://stackoverflow.com/a/57937013
