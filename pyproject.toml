@@ -10,7 +10,7 @@ requires-python = ">=3.10"
 dependencies = [
   "cellpose~=4.0.3",
   "dash[diskcache]~=3.0.4",
-  "dash-bootstrap-components~=2.0.2",
+  "dash-bootstrap-components~=2.0.3",
   "gradio~=5.29.1",
   "ipykernel~=6.29.5",
   "ipywidgets~=8.1.7",
@@ -24,6 +24,9 @@ dependencies = [
   "seaborn~=0.13.2",
   "tensorboard~=2.19.0",
   "wandb~=0.19.11",
+  "orjson~=3.10.18",
+  "pillow~=11.2.1",
+  "pydantic>=2.11.5",
 ]
 
 [tool.uv]
@@ -90,6 +93,8 @@ line-length = 120  # how long you want lines to be
 
 [tool.ruff.format]
 docstring-code-format = true  # code snippets in docstrings will be formatted
+preview = true
+
 
 [tool.ruff.lint]
 # For more strict linting and code simplifications, replace this with

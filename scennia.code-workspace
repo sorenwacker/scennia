@@ -4,8 +4,18 @@
 			"path": "."
 		},
 		{
-			"path": "../../../../shared-data/scennia",
-			"name": "data"
+			"name": "data",
+			"path": "../../../../shared-data/scennia"
 		}
-	]
+	],
+	"settings": {
+		"[python]": {
+			"editor.rulers": [
+				120
+			]
+		},
+		"editor.rulers": [
+			120
+		]
+	}
 }
