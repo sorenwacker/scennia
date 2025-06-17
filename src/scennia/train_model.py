@@ -124,28 +124,24 @@ class CellDataModule(L.LightningDataModule):
         self._setup_done = False
 
         # Transforms
-        self.train_transforms = transforms.Compose(
-            [
-                # AspectRatioResize(img_size),
-                transforms.Resize((img_size, img_size)),
-                # HistogramEqualization(),
-                transforms.RandomRotation(30),
-                transforms.RandomHorizontalFlip(),
-                transforms.RandomVerticalFlip(),
-                # transforms.ColorJitter(brightness=0.2, contrast=0.2),
-                transforms.ToTensor(),
-                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-            ]
-        )
+        self.train_transforms = transforms.Compose([
+            # AspectRatioResize(img_size),
+            transforms.Resize((img_size, img_size)),
+            # HistogramEqualization(),
+            transforms.RandomRotation(30),
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomVerticalFlip(),
+            # transforms.ColorJitter(brightness=0.2, contrast=0.2),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ])
 
-        self.val_transforms = transforms.Compose(
-            [
-                # AspectRatioResize(img_size),
-                transforms.Resize((img_size, img_size)),
-                transforms.ToTensor(),
-                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-            ]
-        )
+        self.val_transforms = transforms.Compose([
+            # AspectRatioResize(img_size),
+            transforms.Resize((img_size, img_size)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ])
 
     def setup(self, stage=None):  # noqa: ARG002
         if self._setup_done:
@@ -263,9 +259,12 @@ class CellDataModule(L.LightningDataModule):
                     if image.mode == "L" or image.mode == "RGBA":
                         image = image.convert("RGB")
 
-                    example_images.append(
-                        {"image": image, "class_name": class_name, "label": class_label, "path": img_path}
-                    )
+                    example_images.append({
+                        "image": image,
+                        "class_name": class_name,
+                        "label": class_label,
+                        "path": img_path,
+                    })
                 except FileNotFoundError:
                     print(f"Warning: Could not find image at {img_path}")
                     continue
@@ -496,14 +495,12 @@ class CellClassifier(L.LightningModule):
 
             # Log to wandb
             if self.logger and hasattr(self.logger, "experiment"):
-                self.logger.experiment.log(
-                    {
-                        "confusion_matrix": wandb.Image(plt),
-                        "confusion_matrix_data": wandb.Table(
-                            data=cm.tolist(), columns=self.class_names, rows=self.class_names
-                        ),
-                    }
-                )
+                self.logger.experiment.log({
+                    "confusion_matrix": wandb.Image(plt),
+                    "confusion_matrix_data": wandb.Table(
+                        data=cm.tolist(), columns=self.class_names, rows=self.class_names
+                    ),
+                })
 
             plt.close()
 

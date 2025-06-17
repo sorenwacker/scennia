@@ -758,14 +758,14 @@ diskcache = [
 
 [[package]]
 name = "dash-bootstrap-components"
-version = "2.0.2"
+version = "2.0.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "dash" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/87/29/a544c4ad237e281d1fd7bcbc3e0cbafc518412d8c40161e64f01d55334ef/dash_bootstrap_components-2.0.2.tar.gz", hash = "sha256:f35218f0e5e2b159121f3e010e61b3226b0a678b2f582d0bd207d42d29132cc0", size = 114848, upload-time = "2025-04-21T11:26:13.517Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/49/8d/0f641e7c7878ac65b4bb78a2c7cb707db036f82da13fd61948adec44d5aa/dash_bootstrap_components-2.0.3.tar.gz", hash = "sha256:5c161b04a6e7ed19a7d54e42f070c29fd6c385d5a7797e7a82999aa2fc15b1de", size = 115466, upload-time = "2025-05-22T22:30:18.02Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/93/56/3f0b3c3247fab03f2bd4e2f85a79ef07c0f539915108685da9e94d7289d7/dash_bootstrap_components-2.0.2-py3-none-any.whl", hash = "sha256:033d87511f7a9be72657de52c0c41539e1bf2aac8fe6c0c3a00f153c1bd4ed61", size = 202908, upload-time = "2025-04-21T11:26:11.864Z" },
+    { url = "https://files.pythonhosted.org/packages/f7/f6/b4652aacfbc8d684c9ca8efc5178860a50b54abf82cd1960013c59f8258f/dash_bootstrap_components-2.0.3-py3-none-any.whl", hash = "sha256:82754d3d001ad5482b8a82b496c7bf98a1c68d2669d607a89dda7ec627304af5", size = 203706, upload-time = "2025-05-22T22:30:16.304Z" },
 ]
 
 [[package]]
@@ -3935,6 +3935,9 @@ dependencies = [
     { name = "nx-cugraph-cu12" },
     { name = "onnx" },
     { name = "onnxruntime" },
+    { name = "orjson" },
+    { name = "pillow" },
+    { name = "pydantic" },
     { name = "scikit-image" },
     { name = "scikit-learn" },
     { name = "seaborn" },
@@ -3957,7 +3960,7 @@ dev = [
 requires-dist = [
     { name = "cellpose", specifier = "~=4.0.3" },
     { name = "dash", extras = ["diskcache"], specifier = "~=3.0.4" },
-    { name = "dash-bootstrap-components", specifier = "~=2.0.2" },
+    { name = "dash-bootstrap-components", specifier = "~=2.0.3" },
     { name = "gradio", specifier = "~=5.29.1" },
     { name = "ipykernel", specifier = "~=6.29.5" },
     { name = "ipywidgets", specifier = "~=8.1.7" },
@@ -3966,6 +3969,9 @@ requires-dist = [
     { name = "nx-cugraph-cu12", specifier = "~=25.4.0", index = "https://pypi.nvidia.com/" },
     { name = "onnx", specifier = "~=1.18.0" },
     { name = "onnxruntime", specifier = "~=1.19.0" },
+    { name = "orjson", specifier = "~=3.10.18" },
+    { name = "pillow", specifier = "~=11.2.1" },
+    { name = "pydantic", specifier = ">=2.11.5" },
     { name = "scikit-image", specifier = "~=0.25.2" },
     { name = "scikit-learn", specifier = "~=1.6.1" },
     { name = "seaborn", specifier = "~=0.13.2" },
