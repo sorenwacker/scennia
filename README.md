@@ -7,7 +7,9 @@ git@gitlab.ewi.tudelft.nl:reit/scennia.git
 ```
 
 ## Overview
-Scennia provides two main components:
+Scennia provides three main components:
+
+- **Preprocessing Pipeline**: Process raw images and extract individual cells with metadata for training
 - **Training Pipeline**: Train deep learning models for cell classification
 - **Analysis App**: Interactive web application for cell analysis with lactate classification
 
@@ -192,12 +194,12 @@ This project is maintained by the REIT group at TU Delft. For contributions or i
 
 ## License
 
-Distributed under the terms of the [No license (others may not use, share or modify the code) license](LICENSE).
+No license.
 
 ## Contact
 
 Name | Email | Role
---- | --- | ---
+---- | ----- | ---
 Nergis Tömen | N.Tomen@tudelft.nl | Project Lead
 Josh Flack | J.E.Flack@tudelft.nl | Project Lead
 
