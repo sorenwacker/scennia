@@ -46,8 +46,8 @@ app.clientside_callback(
         // Create a copy of the figure to avoid modifying the original
         const newFigure = JSON.parse(JSON.stringify(figure));
 
-        // Set visibility for all traces except the first one (which is the image)
-        for (let i = 1; i < newFigure.data.length; i++) {
+        // Toggle traces visibility
+        for (let i = 0; i < newFigure.data.length; i++) {
             newFigure.data[i].visible = showAnnotations;
         }
 
