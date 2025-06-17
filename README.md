@@ -1,162 +1,176 @@
-# scennia
+# Scennia
 
-Code for SCENNIA project.
+A cell classification and analysis application built with PyTorch Lightning and Weights & Biases (Wandb) integration.
 
-## Sections in this README
+## Repository
 
-- [Installation](#installation)
-- [Running the main script](#running-the-main-script)
-- [Adding dependencies](#adding-dependencies)
-- [Running test](#running-tests)
-- [Formatting and checking](#formatting-and-checking)
-- [Documentation](#documentation)
-- [Versions](#versions)
-- [Publishing your package](#publishing-the-package)
-- [License](#license)
+```
+git@gitlab.ewi.tudelft.nl:reit/scennia.git
+```
+
+## Overview
+
+Scennia provides two main components:
+- **Training Pipeline**: Train deep learning models for cell classification
+- **Analysis App**: Interactive web application for cell analysis with lactate classification
 
 ## Installation
 
-1. Install [uv](https://docs.astral.sh/uv/):
+1. Clone the repository:
+```bash
+git clone git@gitlab.ewi.tudelft.nl:reit/scennia.git
+cd scennia
+```
 
-2. Install the dependencies, including the dev dependencies
+2. Install the package (assuming conda/pip environment):
+```bash
+# Install in development mode
+pip install -e .
+```
 
-    ```bash
-    uv sync
-    ```
-    or install only the runtime dependencies
+## Usage
 
-    ```bash
-    uv sync --no-dev
-    ```
+### Training Models (`scennia_train_model`)
 
-3. Install the pre-commit hook.
-This will set up pre-commit to run the checks automatically on your files before you commit them.
+Train cell classification models with various architectures and hyperparameters.
 
-    ```bash
-    uv run pre-commit install
-    ```
-
-  **Remember that if the pre-commit checks fail, you can always commit by skipping the checks with `git commit --no-verify`**
-
-## Running the scripts
-
-Run the web application:
+#### Basic Usage
 
 ```bash
-uv run scennia_app
+scennia_train_model --csv_path path/to/dataset.csv
 ```
 
-Run preprocessing, which segments and crops images:
+#### Advanced Usage
 
 ```bash
-uv run scennia_preprocessing --data_dir ~/lactate/ --output_dir ~/lactate-processed/ --gpu
+scennia_train_model \
+    --csv_path data/cells.csv \
+    --model_name efficientnet_b0 \
+    --img_size 224 \
+    --batch_size 32 \
+    --max_epochs 100 \
+    --gpus 1 \
+    --learning_rate 1e-4 \
+    --project_name "cell-classification" \
+    --run_name "experiment-001"
 ```
 
-Train the model:
+#### Parameters
+
+| Parameter | Description | Default | Options |
+|-----------|-------------|---------|---------|
+| `--csv_path` | Path to dataset CSV file | **Required** | - |
+| `--model_name` | Model architecture | - | `resnet18`, `resnet50`, `efficientnet_b0`, `efficientnet_b1`, `vit_b_16` |
+| `--img_size` | Input image size | - | Integer |
+| `--batch_size` | Batch size | - | Integer |
+| `--max_epochs` | Maximum training epochs | - | Integer |
+| `--gpus` | Number of GPUs to use | - | Integer |
+| `--no_pretrained` | Train from scratch without pretrained weights | False | Flag |
+| `--loss_patience` | Patience for validation loss early stopping | - | Integer |
+| `--f1_patience` | Patience for validation F1 early stopping | - | Integer |
+| `--min_delta` | Minimum change to qualify as improvement | - | Float |
+| `--learning_rate` | Learning rate for optimizer | 1e-3 | Float |
+| `--weight_decay` | Weight decay for L2 regularization | 1e-4 | Float |
+| `--unfreeze_epochs` | Epochs to freeze backbone before unfreezing | 0 | Integer |
+| `--unfreeze_lr_reduction` | LR reduction factor when unfreezing | 1.0 | Float |
+| `--use_class_weights` | Enable class weight balancing | - | Boolean |
+| `--project_name` | Wandb project name | - | String |
+| `--run_name` | Wandb run name | - | String |
+
+### Cell Analysis App (`scennia_app`)
+
+Launch the interactive web application for cell analysis.
+
+#### Basic Usage
 
 ```bash
-uv run scennia_train_model --csv_path ~/lactate-processed/dataset.csv
+scennia_app
 ```
 
-For information about training parameters:
+#### Advanced Usage
 
 ```bash
-uv run scennia_train_model --help
+scennia_app \
+    --model_path models/cell_classifier.onnx \
+    --port 8080 \
+    --debug
 ```
 
-## Adding dependencies
+#### Parameters
 
-Add dependencies by running
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `--model_path` | Path to ONNX classification model | - |
+| `--lazy_load` | Lazily load ONNX classification model | False |
+| `--port` | Port to run the app on | - |
+| `--debug` | Run in debug mode | False |
 
-```bash
-uv add numpy
+## Model Architectures
+
+Scennia supports the following pre-trained model architectures:
+
+- **ResNet**: `resnet18`, `resnet50`
+- **EfficientNet**: `efficientnet_b0`, `efficientnet_b1`  
+- **Vision Transformer**: `vit_b_16`
+
+## Dataset Format
+
+| Column | Description | Example |
+|--------|-------------|---------|
+| `cell_path` | Path to the cell image file | `/shared-data/scennia/lactate-processed/images/c8dd336c8bc5f8c0f9b5ff372f310fba_001.png` |
+| `cell_id` | Unique identifier for the cell | `1` |
+| `source_image` | Path to the original source image | `/shared-data/scennia/lactate/F - Lac40 2k-cm2/25-039 47h F_0020_Trans.tiff` |
+| `source_folder` | Source folder name | `F___Lac40_2k_cm2` |
+| `treatment_type` | Type of treatment applied | `lactate` |
+| `concentration` | Treatment concentration | `40.0` |
+| `density` | Cell density | `2.0` |
+| `area` | Cell area measurement | `2738.0` |
+| `perimeter` | Cell perimeter measurement | `304.36` |
+| `eccentricity` | Cell shape eccentricity | `0.977` |
+| `centroid_y` | Y-coordinate of cell centroid | `28.79` |
+| `centroid_x` | X-coordinate of cell centroid | `477.44` |
+| `is_large` | Boolean indicating if cell is large | `False` |
+| `image_hash` | Hash identifier for the image | `c8dd336c8bc5f8c0f9b5ff372f310fba` |
+
+### Example CSV Row
+
+```csv
+cell_path,cell_id,source_image,source_folder,treatment_type,concentration,density,area,perimeter,eccentricity,centroid_y,centroid_x,is_large,image_hash
+/shared-data/scennia/lactate-processed/images/c8dd336c8bc5f8c0f9b5ff372f310fba_001.png,1,/shared-data/scennia/lactate/F - Lac40 2k-cm2/25-039 47h F_0020_Trans.tiff,F___Lac40_2k_cm2,lactate,40.0,2.0,2738.0,304.3624817342638,0.9769353955157031,28.79108838568298,477.44229364499637,False,c8dd336c8bc5f8c0f9b5ff372f310fba
 ```
 
-if you want to install torch with CUDA support, you can do it via:
+## Features
 
-```bash
-uv add torch==2.4.1+cu121 torchaudio==2.4.1+cu121 torchvision==0.19.1+cu121 --extra-index-url https://download.pytorch.org/whl/cu121
-```
+### Training Pipeline
+- Multiple CNN and transformer architectures
+- Transfer learning with pretrained weights
+- Early stopping with configurable patience
+- Learning rate scheduling and backbone unfreezing
+- Class weight balancing for imbalanced datasets
+- Weights & Biases integration for experiment tracking
 
-## Running tests
+### Analysis App
+- Interactive web interface
+- ONNX model inference for fast predictions
+- Lactate classification capabilities
+- Configurable model loading (lazy loading supported)
+- Debug mode for development
 
-Run your tests with
+## Requirements
 
-```bash
-uv run pytest --cov=src ./tests
-```
+- PyTorch Lightning
+- Weights & Biases (Wandb)
+- ONNX Runtime (for the app)
+- Additional dependencies as specified in requirements files
 
-## Formatting and checking
+## Contributing
 
-The tools for formatting and linting your code for errors are all bundled with [pre-commit](https://pre-commit.com/). Included are:
-- [ruff](https://astral.sh/ruff) - linting and formatting
-- [yamlfix](https://github.com/lyz-code/yamlfix) - linting and formatting for .yaml files
-- various other small fixes and checks (see the [`.pre-commit-config.yaml`](.pre-commit-config.yaml) file for more information)
-
-It's possible that pre-commit will make changes to your files when it runs the checks, so you should add those changes to your commit before you commit your code. A typical workflow would look like this:
-
-```bash
-git add -u
-git commit -m "My commit message"
-# pre-commit will run the checks here; if it makes changes, you'll need to add them to your commit
-git add -u
-git commit -m "My commit message"
-# changes should have all been made by now and the commit should pass if there are no other issues
-# if your commit fails again here, you have to fix the issues manually (not everything can be fixed automatically).
-```
-
-One thing that is worth knowing is how to lint your files outside of the context of a commit. You can run the checks manually by running the following command:
-
-```bash
-uv run pre-commit run --all-files
-```
-
-This will run the checks on all files in your git project, regardless of whether they're staged for commit or not.
-
-## Documentation
-
-Generate the documentation locally with
-
-```bash
-uv run mkdocs serve --watch ./
-```
-
-## Versions
-
-Versions are managed automatically via [hatch-vcs](https://github.com/ofek/hatch-vcs), which follows the versioning scheme from [setuptools-scm](https://setuptools-scm.readthedocs.io/en/latest/usage/#default-versioning-scheme).
-
-To create a new version, tag the code with `git tag <version>`, e.g. `git tag v0.1.0`, and push the tag with `git push --tags`.
-
-You can check the version by running
-
-```bash
-uv run hatch version
-```
-
-In python you can see the version with
-```python
-from scennia import __version__
-
-print(f"scennia version is { __version__ }")
-```
-
-## Publishing the package
-
-If you're ready to publish your package to [PyPI](https://pypi.org/) (i.e. you want to be able to run `pip install my-package-name` from anywhere), follow the [uv instructions](https://docs.astral.sh/uv/guides/publish/).
-In short, they boil down to running:
-
-1. Build the wheel
-
-    ```bash
-    uv build
-    ```
-
-2. Upload the wheel to PyPI ()
-
-    ```bash
-    uv publish
-    ```
+This project is maintained by the REIT group at TU Delft. For contributions or issues, please use the GitLab repository.
 
 ## License
 
 Distributed under the terms of the [No license (others may not use, share or modify the code) license](LICENSE).
+
+## Contact
+
+[Add contact information or links to relevant documentation]
