@@ -61,7 +61,7 @@ def update_full_figure_layout(fig: go.Figure, width, height, has_cell_data=False
         # Add helpful annotation
         annotations=[
             {
-                "text": "Click on any colored circle to view cell details",
+                "text": "Click on a colored cell to view its details",
                 "x": 0.5,
                 "y": 0.01,
                 "xref": "paper",
@@ -86,6 +86,7 @@ def update_full_figure_layout(fig: go.Figure, width, height, has_cell_data=False
         showgrid=False,
         zeroline=False,
         visible=False,
+        fixedrange=True,  # Disable zoom, doesn't seem to work well
         constrain="domain",  # This helps maintain image dimensions
     )
     fig.update_yaxes(
@@ -94,6 +95,7 @@ def update_full_figure_layout(fig: go.Figure, width, height, has_cell_data=False
         showgrid=False,
         zeroline=False,
         visible=False,
+        fixedrange=True,  # Disable zoom, doesn't seem to work well
         scaleanchor="x",  # Preserve aspect ratio
         scaleratio=1.0,  # 1:1 aspect ratio
     )
