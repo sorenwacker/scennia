@@ -394,7 +394,10 @@ def display_images(_):
     for image_with_hash in images:
         IMAGES_STORE[i] = image_with_hash
         encoded = encode_image(image_with_hash.image)
-        options.append({"label": html.Img(src=encoded.contents, className="w-100 h-100"), "value": i})
+        options.append({
+            "label": html.Img(src=encoded.contents, className="w-100 h-100 rounded"),
+            "value": i,
+        })
         i = i + 1
     return html.Div(
         className="radio-group",
@@ -406,7 +409,9 @@ def display_images(_):
             labelClassName="btn btn-outline-primary",
             labelCheckedClassName="active",
             label_style={
-                "width": "175px",
+                "width": "150px",
+                "padding-left": "6px",
+                "padding-right": "6px",
             },
             options=options,
         ),
