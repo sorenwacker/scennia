@@ -13,7 +13,7 @@ from dash.dependencies import Input, Output, State
 from PIL.Image import Image
 from skimage.measure import find_contours, regionprops
 
-from scennia.app.data import AggregateData, Cell, DiskCache, ImageData, ImageWithHash
+from scennia.app.data import AggregateData, Cell, DiskCache, EncodedImage, ImageData, ImageWithHash
 from scennia.app.image import (
     calculate_image_hash,
     create_complete_figure,
@@ -531,6 +531,125 @@ def display_uploaded_image(contents, filename):
         )
 
 
+# Get processed data for given image hash, getting it from memory, disk cache, or by processing the image.
+def get_processed_data(image_hash) -> tuple[EncodedImage, list[Cell], AggregateData] | None:
+    if image_hash not in IMAGE_DATA_STORE:
+        return None
+
+    # Get from memory
+    image_data = IMAGE_DATA_STORE[image_hash]
+    if len(image_data.cells) > 0:  # TODO: add a field to figure out if cells/aggregate_data have been set.
+        print("Using memory cached results")
+        return (image_data.encoded_image, image_data.cells, image_data.aggregate_data)
+
+    # Get from disk cache
+    load_start = timer()
+    disk_cached_data = DISK_CACHE.load_data(image_hash)
+    dash.callback_context.record_timing("load_cache_data", timer() - load_start, "Read and deserialize cached data")
+    if disk_cached_data:
+        print("Using disk cached results")
+
+        # Update stores
+        image_data.cells = disk_cached_data.cells
+        image_data.aggregate_data = disk_cached_data.aggregate_data
+
+        return (image_data.encoded_image, disk_cached_data.cells, disk_cached_data.aggregate_data)
+
+    # Process image
+    print("Processing image")
+    cellpose_model = model_manager.get_cellpose_model()
+
+    processing_start = timer()
+
+    # Convert uncompressed image to array for processing
+    uncompressed_image = image_data.uncompressed_image
+    image_array = np.asarray(uncompressed_image)
+
+    # Process with cellpose (using default values)
+    flow_threshold = 0.4  # Default value
+    cell_prob_threshold = 0.0  # Default value
+
+    segmentation_start = timer()
+    result = cellpose_model.eval([image_array], flow_threshold=flow_threshold, cellprob_threshold=cell_prob_threshold)
+    dash.callback_context.record_timing("segmentation", timer() - segmentation_start, "Segmentation")
+
+    mask = result[0][0]
+    props = regionprops(mask)
+
+    # Calculate summary statistics
+    median_area = np.median([p.area for p in props]) if props else 0
+
+    # Store cell properties in a suitable format
+    cells: list[Cell] = []
+    cropped_uncompressed_images: dict[str, Image] = {}  # This will store cropped images
+
+    crop_and_classify_start = timer()
+    for i, prop in enumerate(props):
+        cell_id = i + 1
+        is_large = prop.area > median_area
+
+        # Create basic cell data first
+        cell = Cell(
+            id=cell_id,
+            centroid_y=float(prop.centroid[0]),
+            centroid_x=float(prop.centroid[1]),
+            area=float(prop.area),
+            perimeter=float(prop.perimeter),
+            eccentricity=float(prop.eccentricity),
+            bbox=[int(x) for x in prop.bbox],
+            contour=find_contours(mask == cell_id)[0].T.tolist(),
+            is_large=bool(is_large),
+        )
+
+        # Crop cell
+        cropped_uncompressed_image = crop_cell(uncompressed_image, cell.bbox)
+        cropped_uncompressed_images[str(cell_id)] = cropped_uncompressed_image
+
+        # Perform classification if model is available
+        cell_prediction = {}
+        if model_manager.has_onnx_model_path():
+            model_manager.load_onnx_model_if_needed()
+            try:
+                # Classify the cell crop
+                classification_result = model_manager.classify_cell_crop(cropped_uncompressed_image)
+
+                if "error" not in classification_result:
+                    cell_prediction = classification_result
+                else:
+                    print(f"Classification error for cell {cell_id}: {classification_result['error']}")
+                    # Fallback to basic size prediction
+                    cell_prediction = {"size_pixels": float(prop.area)}
+
+            except Exception as e:
+                print(f"Error classifying cell {cell_id}: {e}")
+                # Fallback to basic size prediction
+                cell_prediction = {"size_pixels": float(prop.area)}
+        else:
+            # No classification model, use basic size prediction
+            cell_prediction = {"size_pixels": float(prop.area)}
+
+        # Store the predicted properties
+        cell.predicted_properties = cell_prediction
+
+        cells.append(cell)
+
+    dash.callback_context.record_timing("crop_and_classify", timer() - crop_and_classify_start, "Crop and classify")
+    dash.callback_context.record_timing("total_processing", timer() - processing_start, "Total processing")
+
+    # Save data and compressed cropped images to disk cache
+    save_start = timer()
+    aggregate_data = AggregateData(median_area=float(median_area))
+    DISK_CACHE.save_data(image_hash, cells, aggregate_data)
+    DISK_CACHE.save_compressed_cropped_images(image_hash, cropped_uncompressed_images)
+    dash.callback_context.record_timing("save_cache_data", timer() - save_start, "Save cache data")
+
+    # Update stores
+    image_data.cells = cells
+    image_data.aggregate_data = aggregate_data
+
+    return (image_data.encoded_image, cells, aggregate_data)
+
+
 # Process image and check cache
 @app.callback(
     [
@@ -555,370 +674,132 @@ def display_uploaded_image(contents, filename):
 )
 def process_image(n_clicks, image_hash, show_annotations):
     if n_clicks is None or image_hash is None or image_hash not in IMAGE_DATA_STORE:
-        return dash.no_update, summary_uploaded_placeholder, cell_info_placeholder, None, None, None
+        raise dash.exceptions.PreventUpdate
 
-    image_data = IMAGE_DATA_STORE[image_hash]
+    processed_data = get_processed_data(image_hash)
+    if processed_data is None:
+        raise dash.exceptions.PreventUpdate
 
-    load_start = timer()
-    cached_data = DISK_CACHE.load_data(image_hash)
-    dash.callback_context.record_timing("load_cache_data", timer() - load_start, "Read and deserialize cached data")
+    (encoded_image, cells, aggregate_data) = processed_data
 
-    # Check cache first
-    if cached_data:
-        print("Using cached results")
+    # Create summary content
+    summary_start = timer()
+    class_counts = {}  # For all classes: {class_name: count}
+    concentration_counts = {}  # For concentrations: {concentration: count}
+    classification_available = False
 
-        processing_start = timer()
+    for cell in cells:
+        predicted_props = cell.predicted_properties
+        if "predicted_class" in predicted_props:
+            classification_available = True
+            predicted_class = predicted_props["predicted_class"]
+            concentration = predicted_props.get("concentration", 0)
 
-        # Create summary from cached data
-        cells = cached_data.cells
-        aggregate_data = cached_data.aggregate_data
+            class_counts[predicted_class] = class_counts.get(predicted_class, 0) + 1
+            concentration_counts[concentration] = concentration_counts.get(concentration, 0) + 1
 
-        # Count cells by classification if available
-        class_counts = {}  # For all classes: {class_name: count}
-        concentration_counts = {}  # For concentrations: {concentration: count}
-        classification_available = False
-
-        for cell in cells:
-            predicted_props = cell.predicted_properties
-            if "predicted_class" in predicted_props:
-                classification_available = True
-                predicted_class = predicted_props["predicted_class"]
-                concentration = predicted_props.get("concentration", 0)
-
-                class_counts[predicted_class] = class_counts.get(predicted_class, 0) + 1
-                concentration_counts[concentration] = concentration_counts.get(concentration, 0) + 1
-
-        dash.callback_context.record_timing("total_processing", timer() - processing_start, "Total processing (cached)")
-
-        # Create summary content
-        summary_start = timer()
-        summary_content = [
-            html.H5(f"Detected {len(cells)} cells (from cache)"),
-            html.P(f"Median cell area: {aggregate_data.median_area:.1f} pixels"),
-            html.P(f"Mean cell area: {np.mean([c.area for c in cells]):.1f} pixels"),
-        ]
-
-        if classification_available:
-            # Create text summary
-            total_cells = sum(class_counts.values())
-            summary_content.append(
-                html.P([
+    summary_list = [
+        html.Li(html.Span(f"Median cell area: {aggregate_data.median_area:.1f} pixels")),
+        html.Li(html.Span(f"Mean cell area: {np.mean([c.area for c in cells]):.1f} pixels")),
+    ]
+    if classification_available:
+        # Create text summary
+        total_cells = sum(class_counts.values())
+        summary_list.append(
+            html.Li(
+                html.Span([
                     "Cell classifications: ",
                     html.Span(f"{total_cells} total cells classified", style={"fontWeight": "bold"}),
                 ])
             )
+        )
+    summary_content = [
+        html.H5(f"Detected {len(cells)} cells"),
+        html.Ul(summary_list),
+    ]
 
-            # Create concentration distribution plot
-            if concentration_counts:
-                # Ensure all concentration levels are represented
-                all_concentrations = [0, 5, 10, 20, 40, 80]
-                plot_data = []
+    if classification_available:
+        # Create concentration distribution plot
+        if concentration_counts:
+            # Ensure all concentration levels are represented
+            all_concentrations = [0, 5, 10, 20, 40, 80]
+            plot_data = []
 
-                for concentration in all_concentrations:
-                    count = concentration_counts.get(concentration, 0)
-                    # Determine class name for this concentration
-                    class_name = "control_00" if concentration == 0 else f"lactate_{concentration:02d}"
+            for concentration in all_concentrations:
+                count = concentration_counts.get(concentration, 0)
+                # Determine class name for this concentration
+                class_name = "control_00" if concentration == 0 else f"lactate_{concentration:02d}"
 
-                    plot_data.append({
-                        "Class": class_name,
-                        "Concentration": concentration,
-                        "Count": count,
-                        "Color": get_concentration_color(concentration),
-                    })
+                plot_data.append({
+                    "Class": class_name,
+                    "Concentration": concentration,
+                    "Count": count,
+                    "Color": get_concentration_color(concentration),
+                })
 
-                df_plot = pd.DataFrame(plot_data)
+            df_plot = pd.DataFrame(plot_data)
 
-                # Create bar plot with custom colors
-                fig_bar = px.bar(
-                    df_plot,
-                    x="Concentration",
-                    y="Count",
-                    title="Cell Count by Concentration Level",
-                    labels={"Concentration": "Concentration Level", "Count": "Number of Cells"},
-                    color="Color",
-                    color_discrete_map={row["Color"]: row["Color"] for _, row in df_plot.iterrows()},
-                )
+            # Create bar plot with custom colors
+            fig_bar = px.bar(
+                df_plot,
+                x="Concentration",
+                y="Count",
+                title="Cell Count by Concentration Level",
+                labels={"Concentration": "Concentration Level", "Count": "Number of Cells"},
+                color="Color",
+                color_discrete_map={row["Color"]: row["Color"] for _, row in df_plot.iterrows()},
+            )
 
-                # Update layout
-                fig_bar.update_layout(
-                    height=300,
-                    margin={"l": 20, "r": 20, "t": 40, "b": 20},
-                    font={"size": 12},
-                    showlegend=False,  # Hide color legend since colors are self-explanatory
-                    xaxis={
-                        "tickmode": "array",
-                        "tickvals": all_concentrations,
-                        "ticktext": [f"{c}" for c in all_concentrations],
-                        "title": "Concentration Level",
-                    },
-                )
+            # Update layout
+            fig_bar.update_layout(
+                height=300,
+                margin={"l": 20, "r": 20, "t": 40, "b": 20},
+                font={"size": 12},
+                showlegend=False,  # Hide color legend since colors are self-explanatory
+                xaxis={
+                    "tickmode": "array",
+                    "tickvals": all_concentrations,
+                    "ticktext": [f"{c}" for c in all_concentrations],
+                    "title": "Concentration Level",
+                },
+            )
 
-                # Add concentration labels on hover
-                fig_bar.update_traces(hovertemplate="<b>%{x}</b><br>Count: %{y}<extra></extra>")
+            # Add concentration labels on hover
+            fig_bar.update_traces(hovertemplate="<b>%{x}</b><br>Count: %{y}<extra></extra>")
 
-                # Add the plot to summary
-                summary_content.append(
-                    dcc.Graph(
-                        figure=fig_bar, config={"displayModeBar": False}, style={"height": "320px", "margin": "10px 0"}
-                    )
-                )
-        else:
-            large_cells = sum(c.is_large for c in cells)
-            small_cells = len(cells) - large_cells
+            # Add the plot to summary
             summary_content.append(
-                html.P([
-                    "Cell count by size: ",
-                    html.Span(f"{large_cells} large", style={"color": "green", "fontWeight": "bold"}),
-                    ", ",
-                    html.Span(f"{small_cells} small", style={"color": "red", "fontWeight": "bold"}),
-                ])
-            )
-
-        summary_content.extend([
-            html.P(html.B("Click on any cell marker to view details"), className="mt-3"),
-        ])
-        dash.callback_context.record_timing("summary", timer() - summary_start, "Create summary")
-
-        # Create the figure with cell data
-        figure_start = timer()
-        fig = create_complete_figure(image_data.encoded_image, cells, show_annotations)
-        dash.callback_context.record_timing("figure", timer() - figure_start, "Create figure")
-
-        # Update stores
-        image_data.cells = cells
-        image_data.aggregate_data = aggregate_data
-
-        return (
-            fig,
-            summary_content,
-            cell_info_processed_placeholder,
-            # Status alert
-            f"Processed image from cache: {len(cells)} cells detected",
-            "info",
-            True,
-        )
-
-    try:
-        cellpose_model = model_manager.get_cellpose_model()
-
-        processing_start = timer()
-
-        # Convert uncompressed image to array for processing
-        uncompressed_image = image_data.uncompressed_image
-        image_array = np.asarray(uncompressed_image)
-
-        # Process with cellpose (using default values)
-        flow_threshold = 0.4  # Default value
-        cell_prob_threshold = 0.0  # Default value
-
-        segmentation_start = timer()
-        result = cellpose_model.eval(
-            [image_array], flow_threshold=flow_threshold, cellprob_threshold=cell_prob_threshold
-        )
-        dash.callback_context.record_timing("segmentation", timer() - segmentation_start, "Segmentation")
-
-        mask = result[0][0]
-        props = regionprops(mask)
-
-        # Calculate summary statistics
-        median_area = np.median([p.area for p in props]) if props else 0
-
-        # Store cell properties in a suitable format
-        cells: list[Cell] = []
-        cropped_uncompressed_images: dict[str, Image] = {}  # This will store cropped images
-
-        crop_and_classify_start = timer()
-        for i, prop in enumerate(props):
-            cell_id = i + 1
-            is_large = prop.area > median_area
-
-            # Create basic cell data first
-            cell = Cell(
-                id=cell_id,
-                centroid_y=float(prop.centroid[0]),
-                centroid_x=float(prop.centroid[1]),
-                area=float(prop.area),
-                perimeter=float(prop.perimeter),
-                eccentricity=float(prop.eccentricity),
-                bbox=[int(x) for x in prop.bbox],
-                contour=find_contours(mask == cell_id)[0].T.tolist(),
-                is_large=bool(is_large),
-            )
-
-            # Crop cell
-            cropped_uncompressed_image = crop_cell(uncompressed_image, cell.bbox)
-            cropped_uncompressed_images[str(cell_id)] = cropped_uncompressed_image
-
-            # Perform classification if model is available
-            cell_prediction = {}
-            if model_manager.has_onnx_model_path():
-                model_manager.load_onnx_model_if_needed()
-                try:
-                    # Classify the cell crop
-                    classification_result = model_manager.classify_cell_crop(cropped_uncompressed_image)
-
-                    if "error" not in classification_result:
-                        cell_prediction = classification_result
-                    else:
-                        print(f"Classification error for cell {cell_id}: {classification_result['error']}")
-                        # Fallback to basic size prediction
-                        cell_prediction = {"size_pixels": float(prop.area)}
-
-                except Exception as e:
-                    print(f"Error classifying cell {cell_id}: {e}")
-                    # Fallback to basic size prediction
-                    cell_prediction = {"size_pixels": float(prop.area)}
-            else:
-                # No classification model, use basic size prediction
-                cell_prediction = {"size_pixels": float(prop.area)}
-
-            # Store the predicted properties
-            cell.predicted_properties = cell_prediction
-
-            cells.append(cell)
-
-        dash.callback_context.record_timing("crop_and_classify", timer() - crop_and_classify_start, "Crop and classify")
-        dash.callback_context.record_timing("total_processing", timer() - processing_start, "Total processing")
-
-        # Save data and compressed cropped images to disk cache
-        save_start = timer()
-        aggregate_data = AggregateData(median_area=float(median_area))
-        DISK_CACHE.save_data(image_hash, cells, aggregate_data)
-        DISK_CACHE.save_compressed_cropped_images(image_hash, cropped_uncompressed_images)
-        dash.callback_context.record_timing("save_cache_data", timer() - save_start, "Save cache data")
-
-        # Create summary content
-        summary_start = timer()
-        class_counts = {}  # For all classes: {class_name: count}
-        concentration_counts = {}  # For concentrations: {concentration: count}
-        classification_available = False
-
-        for cell in cells:
-            predicted_props = cell.predicted_properties
-            if "predicted_class" in predicted_props:
-                classification_available = True
-                predicted_class = predicted_props["predicted_class"]
-                concentration = predicted_props.get("concentration", 0)
-
-                class_counts[predicted_class] = class_counts.get(predicted_class, 0) + 1
-                concentration_counts[concentration] = concentration_counts.get(concentration, 0) + 1
-
-        summary_content = [
-            html.H5(f"Detected {len(cells)} cells"),
-            html.P(f"Median cell area: {median_area:.1f} pixels"),
-            html.P(f"Mean cell area: {np.mean([c.area for c in cells]):.1f} pixels"),
-        ]
-
-        if classification_available:
-            # Create text summary
-            total_cells = sum(class_counts.values())
-            summary_content.append(
-                html.P([
-                    "Cell classifications: ",
-                    html.Span(f"{total_cells} total cells classified", style={"fontWeight": "bold"}),
-                ])
-            )
-
-            # Create concentration distribution plot
-            if concentration_counts:
-                # Ensure all concentration levels are represented
-                all_concentrations = [0, 5, 10, 20, 40, 80]
-                plot_data = []
-
-                for concentration in all_concentrations:
-                    count = concentration_counts.get(concentration, 0)
-                    # Determine class name for this concentration
-                    class_name = "control_00" if concentration == 0 else f"lactate_{concentration:02d}"
-
-                    plot_data.append({
-                        "Class": class_name,
-                        "Concentration": concentration,
-                        "Count": count,
-                        "Color": get_concentration_color(concentration),
-                    })
-
-                df_plot = pd.DataFrame(plot_data)
-
-                # Create bar plot with custom colors
-                fig_bar = px.bar(
-                    df_plot,
-                    x="Concentration",
-                    y="Count",
-                    title="Cell Count by Concentration Level",
-                    labels={"Concentration": "Concentration Level", "Count": "Number of Cells"},
-                    color="Color",
-                    color_discrete_map={row["Color"]: row["Color"] for _, row in df_plot.iterrows()},
+                dcc.Graph(
+                    figure=fig_bar, config={"displayModeBar": False}, style={"height": "320px", "margin": "10px 0"}
                 )
-
-                # Update layout
-                fig_bar.update_layout(
-                    height=300,
-                    margin={"l": 20, "r": 20, "t": 40, "b": 20},
-                    font={"size": 12},
-                    showlegend=False,  # Hide color legend since colors are self-explanatory
-                    xaxis={
-                        "tickmode": "array",
-                        "tickvals": all_concentrations,
-                        "ticktext": [f"{c}" for c in all_concentrations],
-                        "title": "Concentration Level",
-                    },
-                )
-
-                # Add concentration labels on hover
-                fig_bar.update_traces(hovertemplate="<b>%{x}</b><br>Count: %{y}<extra></extra>")
-
-                # Add the plot to summary
-                summary_content.append(
-                    dcc.Graph(
-                        figure=fig_bar, config={"displayModeBar": False}, style={"height": "320px", "margin": "10px 0"}
-                    )
-                )
-        else:
-            large_cells = sum(c.is_large for c in cells)
-            small_cells = len(cells) - large_cells
-            summary_content.append(
-                html.P([
-                    "Cell count by size: ",
-                    html.Span(f"{large_cells} large", style={"color": "green", "fontWeight": "bold"}),
-                    ", ",
-                    html.Span(f"{small_cells} small", style={"color": "red", "fontWeight": "bold"}),
-                ])
             )
-
-        summary_content.append(html.P(html.B("Click on any cell marker to view details"), className="mt-3"))
-        dash.callback_context.record_timing("summary", timer() - summary_start, "Create summary")
-
-        # Create the figure with cell data
-        figure_start = timer()
-        fig = create_complete_figure(image_data.encoded_image, cells, show_annotations)
-        dash.callback_context.record_timing("figure", timer() - figure_start, "Create figure")
-
-        # Update stores
-        image_data.cells = cells
-        image_data.aggregate_data = aggregate_data
-
-        return (
-            fig,
-            summary_content,
-            cell_info_processed_placeholder,
-            # Status alert
-            f"Processed image: {len(cells)} cells detected",
-            "success",
-            True,
+    else:
+        large_cells = sum(c.is_large for c in cells)
+        small_cells = len(cells) - large_cells
+        summary_content.append(
+            html.P([
+                "Cell count by size: ",
+                html.Span(f"{large_cells} large", style={"color": "green", "fontWeight": "bold"}),
+                ", ",
+                html.Span(f"{small_cells} small", style={"color": "red", "fontWeight": "bold"}),
+            ])
         )
+    dash.callback_context.record_timing("summary", timer() - summary_start, "Create summary")
 
-    except Exception as e:
-        print(f"Error processing image: {e!s}")
+    # Create the figure with cell data
+    figure_start = timer()
+    fig = create_complete_figure(encoded_image, cells, show_annotations)
+    dash.callback_context.record_timing("figure", timer() - figure_start, "Create figure")
 
-        return (
-            None,
-            summary_uploaded_placeholder,
-            cell_info_placeholder,
-            # Status alert
-            f"Error processing image: {e!s}",
-            "danger",
-            True,
-        )
+    return (
+        fig,
+        summary_content,
+        cell_info_processed_placeholder,
+        # Status alert
+        f"Processed image: {len(cells)} cells detected",
+        "success",
+        True,
+    )
 
 
 # Callback to show cell details when clicked
