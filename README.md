@@ -26,6 +26,8 @@ pip install -e .
 
 ## Usage
 ### Data Preprocessing (`scennia_preprocessing`)
+This command processes raw images from treatment folders, extracting individual cells and generating metadata for training.
+
 #### Basic Usage
 ```bash
 scennia_preprocessing --data_dir /path/to/raw/images
