@@ -18,7 +18,7 @@ git clone git@gitlab.ewi.tudelft.nl:reit/scennia.git
 cd scennia
 ```
 
-2. Install the package (assuming conda/pip environment):
+2. Install the package (assuming conda/pip environment) with Python 3.10+:
 ```bash
 # Install in development mode
 pip install -e .
@@ -128,7 +128,7 @@ scennia_app \
 |-----------|-------------|---------|
 | `--model_path` | Path to ONNX classification model | - |
 | `--lazy_load` | Lazily load ONNX classification model | False |
-| `--port` | Port to run the app on | - |
+| `--port` | Port to run the app on | 7860 |
 | `--debug` | Run in debug mode | False |
 
 ## Model Architectures
