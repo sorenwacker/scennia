@@ -14,6 +14,15 @@ class EncodedImage(BaseModel):
     height: int
 
 
+class CellPrediction(BaseModel):
+    predicted_class: str
+    predicted_class_idx: int
+    confidence: float
+    treatment_type: str
+    concentration: int
+    all_predictions: list[float]
+
+
 class Cell(BaseModel):
     id: int
     centroid_y: float
