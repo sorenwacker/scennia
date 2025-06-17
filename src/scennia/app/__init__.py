@@ -186,8 +186,22 @@ def layout():
                         dcc.Graph(
                             id="image-analysis",
                             figure=update_full_figure_layout(go.Figure(), 0, 0),
-                            config={"displayModeBar": False, "staticPlot": False},
-                            style={"width": "100%", "height": "100%"},
+                            config={
+                                "displayModeBar": False,
+                                "staticPlot": False,
+                                "autosizable": True,
+                                "scrollZoom": False,
+                                "doubleClick": False,
+                                "showTips": False,
+                            },
+                            style={
+                                "width": "100%",
+                                "height": "100%",
+                                # Set minimum width and height to prevent page from jumping around.
+                                "min-width": "800px",
+                                "min-height": "600px",
+                            },
+                            responsive=False,  # Disabled: shrinks the image.
                         ),
                     ],
                 ),
