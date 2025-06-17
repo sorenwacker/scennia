@@ -48,7 +48,7 @@ def calculate_image_hash(image: ImageFile) -> str:
     return hashlib.md5(image.tobytes()).hexdigest()
 
 
-def update_full_figure_layout(fig: go.Figure, width, height, has_cell_data=False, show_annotations=True):
+def update_full_figure_layout(fig: go.Figure, width, height, has_cell_data=False, show_segmentation=True):
     # Update layout - we need fixed pixel coordinates, not aspect ratio preservation
     fig.update_layout(
         autosize=True,
@@ -72,7 +72,7 @@ def update_full_figure_layout(fig: go.Figure, width, height, has_cell_data=False
                 "bordercolor": "gray",
                 "borderwidth": 1,
                 "borderpad": 4,
-                "visible": bool(has_cell_data and show_annotations),
+                "visible": bool(has_cell_data and show_segmentation),
             }
         ]
         if has_cell_data
@@ -104,8 +104,8 @@ def update_full_figure_layout(fig: go.Figure, width, height, has_cell_data=False
 
 
 # Create visualization with all elements
-def create_complete_figure(encoded_image: EncodedImage, cells: list[Cell] | None, show_annotations=True):
-    """Create a complete figure with all elements, with annotations visible based on show_annotations"""
+def create_complete_figure(encoded_image: EncodedImage, cells: list[Cell] | None, show_segmentation=True):
+    """Create a complete figure with all elements, with annotations visible based on show_segmentation"""
 
     try:
         # Create the base figure with the original image
@@ -174,11 +174,11 @@ def create_complete_figure(encoded_image: EncodedImage, cells: list[Cell] | None
                             name=hover_text,
                             customdata=[cell.id],  # Store cell ID for click events
                             showlegend=False,
-                            visible=show_annotations,
+                            visible=show_segmentation,
                         )
                     )
 
-        update_full_figure_layout(fig, encoded_image.width, encoded_image.height, cells is not None, show_annotations)
+        update_full_figure_layout(fig, encoded_image.width, encoded_image.height, cells is not None, show_segmentation)
 
         return fig
 

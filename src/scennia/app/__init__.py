@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from dash import DiskcacheManager, ctx, dcc, html
+from dash import DiskcacheManager, dcc, html
 from dash.dependencies import Input, Output, State
 from PIL.Image import Image
 from skimage.measure import find_contours, regionprops
@@ -33,6 +33,8 @@ app = dash.Dash(
     external_stylesheets=[dbc.themes.BOOTSTRAP],
     background_callback_manager=background_callback_manager,
     suppress_callback_exceptions=True,
+    title="SCENNIA: Prototype Image Analysis Platform",
+    update_title=None,  # type: ignore[reportArgumentType]
 )
 
 # Define the client-side callback for toggling annotations
@@ -65,6 +67,44 @@ app.clientside_callback(
     Input("show-segmentation", "value"),
     State("image-analysis", "figure"),
 )
+
+# Add inline CSS
+app.index_string = """
+<!DOCTYPE html>
+<html>
+    <head>
+        {%metas%}
+        <title>{%title%}</title>
+        {%favicon%}
+        {%css%}
+        <style>
+        /* Add radio-group. Source: https://www.dash-bootstrap-components.com/docs/components/button_group/ */
+        .radio-group .form-check {
+          padding-left: 0;
+        }
+
+        .radio-group .btn-group > .form-check:not(:last-child) > .btn {
+          border-top-right-radius: 0;
+          border-bottom-right-radius: 0;
+        }
+
+        .radio-group .btn-group > .form-check:not(:first-child) > .btn {
+          border-top-left-radius: 0;
+          border-bottom-left-radius: 0;
+          margin-left: -1px;
+        }
+        </style>
+    </head>
+    <body>
+        {%app_entry%}
+        <footer>
+            {%config%}
+            {%scripts%}
+            {%renderer%}
+        </footer>
+    </body>
+</html>
+"""
 
 
 cell_info_placeholder = html.P(
@@ -100,15 +140,16 @@ def layout():
         children=[
             dbc.CardHeader("Images"),
             dbc.CardBody(
+                className="h-100 overflow-x-scroll",
                 children=[
                     dcc.Loading(
                         id="loading-image",
                         type="circle",
                         show_initially=True,
                         className="mh-100",  # Align spinner by setting height to 100% even with no content
-                        children=dbc.Row(
+                        children=html.Div(
                             id="images",
-                            className="flex-nowrap overflow-x-scroll",
+                            className="h-100",
                         ),
                     ),
                 ],
@@ -348,25 +389,28 @@ DISK_CACHE = DiskCache()
 )
 def display_images(_):
     images = DISK_CACHE.load_compressed_images()
-    children = []
+    options = []
     i = 0
     for image_with_hash in images:
         IMAGES_STORE[i] = image_with_hash
         encoded = encode_image(image_with_hash.image)
-        col = dbc.Col(
-            className="col-2",
-            children=dbc.Button(
-                id={
-                    "type": "image-button",
-                    "index": i,
-                },
-                className="btn-link",
-                children=html.Img(src=encoded.contents, className="mw-100"),
-            ),
-        )
-        children.append(col)
+        options.append({"label": html.Img(src=encoded.contents, className="w-100 h-100"), "value": i})
         i = i + 1
-    return children
+    return html.Div(
+        className="radio-group",
+        children=dbc.RadioItems(
+            id="images-select",
+            name="images",
+            className="btn-group",
+            inputClassName="btn-check",
+            labelClassName="btn btn-outline-primary",
+            labelCheckedClassName="active",
+            label_style={
+                "width": "175px",
+            },
+            options=options,
+        ),
+    )
 
 
 # Display clicked image
@@ -378,7 +422,7 @@ def display_images(_):
         Output("cell-info", "children", allow_duplicate=True),
         Output("image-hash-store", "data", allow_duplicate=True),
     ],
-    Input({"type": "image-button", "index": dash.ALL}, "n_clicks"),
+    Input("images-select", "value"),
     background=False,
     running=[  # Disable upload and process while processing.
         (Output("upload-image", "disabled"), True, False),
@@ -386,18 +430,14 @@ def display_images(_):
     ],
     prevent_initial_call=True,
 )
-def display_clicked_image(_):
-    index = ctx.triggered_id["index"]  # type: ignore  # noqa: PGH003
-
-    # Prevent update at application start
-    clicks = ctx.triggered[-1]["value"]
-    if clicks is None or clicks == 0:
+def display_clicked_image(index):
+    if index is None:
         raise dash.exceptions.PreventUpdate
 
     image_with_hash = IMAGES_STORE[index]
     image = image_with_hash.image
     image_hash = image_with_hash.hash
-    print(f"Clicked ({clicks} times) image: {index} with hash {image_hash}")
+    print(f"Selected image: {index} with hash {image_hash}")
 
     # Encode to WebP
     encode_start = timer()
@@ -672,7 +712,7 @@ def get_processed_data(image_hash) -> tuple[EncodedImage, list[Cell], AggregateD
     ],
     prevent_initial_call=True,
 )
-def process_image(n_clicks, image_hash, show_annotations):
+def process_image(n_clicks, image_hash, show_segmentation):
     if n_clicks is None or image_hash is None or image_hash not in IMAGE_DATA_STORE:
         raise dash.exceptions.PreventUpdate
 
@@ -788,7 +828,7 @@ def process_image(n_clicks, image_hash, show_annotations):
 
     # Create the figure with cell data
     figure_start = timer()
-    fig = create_complete_figure(encoded_image, cells, show_annotations)
+    fig = create_complete_figure(encoded_image, cells, show_segmentation)
     dash.callback_context.record_timing("figure", timer() - figure_start, "Create figure")
 
     return (
