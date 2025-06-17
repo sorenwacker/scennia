@@ -38,7 +38,7 @@ app = dash.Dash(
 # Define the client-side callback for toggling annotations
 app.clientside_callback(
     """
-    function(showAnnotations, figure) {
+    function(showSegmentation, figure) {
         if (!figure || !figure.data) {
             return window.dash_clientside.no_update;
         }
@@ -48,13 +48,13 @@ app.clientside_callback(
 
         // Toggle traces visibility
         for (let i = 0; i < newFigure.data.length; i++) {
-            newFigure.data[i].visible = showAnnotations;
+            newFigure.data[i].visible = showSegmentation;
         }
 
         // Toggle annotation visibility
         if (newFigure.layout && newFigure.layout.annotations) {
             for (let i = 0; i < newFigure.layout.annotations.length; i++) {
-                newFigure.layout.annotations[i].visible = showAnnotations;
+                newFigure.layout.annotations[i].visible = showSegmentation;
             }
         }
 
@@ -62,7 +62,7 @@ app.clientside_callback(
     }
     """,
     Output("image-analysis", "figure"),
-    Input("show-annotations", "value"),
+    Input("show-segmentation", "value"),
     State("image-analysis", "figure"),
 )
 
@@ -162,8 +162,8 @@ def layout():
                         dbc.Col(
                             className="col-auto",
                             children=dbc.Switch(
-                                id="show-annotations",
-                                label="Show Annotations",
+                                id="show-segmentation",
+                                label="Show Segmentation",
                                 value=True,
                                 className="mb-0",
                                 label_class_name="mb-0",
@@ -530,7 +530,7 @@ def display_uploaded_image(contents, filename):
     Input("process-button", "n_clicks"),
     [
         State("image-hash-store", "data"),
-        State("show-annotations", "value"),
+        State("show-segmentation", "value"),
     ],
     background=False,
     running=[  # Disable upload and process while processing.
