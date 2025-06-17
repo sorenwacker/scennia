@@ -196,4 +196,8 @@ Distributed under the terms of the [No license (others may not use, share or mod
 
 ## Contact
 
-[Add contact information or links to relevant documentation]
+Name | Email | Role
+--- | --- | ---
+Nergis Tömen | N.Tomen@tudelft.nl | Project Lead
+Josh Flack | J.E.Flack@tudelft.nl | Project Lead
+
