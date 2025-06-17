@@ -1,21 +1,17 @@
-# Scennia
-
-A cell classification and analysis application built with PyTorch Lightning and Weights & Biases (Wandb) integration.
+# SCENNIA: Prototype Image Analysis Platform
+A prototype web application that brings AI-powered image analysis to cultivated meat cell line development. Part of the SCENNIA project funded by the Bezos Earth Fund, this platform combines advanced cell classification models in a user friendly interface.
 
 ## Repository
-
 ```
 git@gitlab.ewi.tudelft.nl:reit/scennia.git
 ```
 
 ## Overview
-
 Scennia provides two main components:
 - **Training Pipeline**: Train deep learning models for cell classification
 - **Analysis App**: Interactive web application for cell analysis with lactate classification
 
 ## Installation
-
 1. Clone the repository:
 ```bash
 git clone git@gitlab.ewi.tudelft.nl:reit/scennia.git
@@ -29,19 +25,52 @@ pip install -e .
 ```
 
 ## Usage
+### Data Preprocessing (`scennia_preprocessing`)
+#### Basic Usage
+```bash
+scennia_preprocessing --data_dir /path/to/raw/images
+```
+
+#### Advanced Usage
+```bash
+scennia_preprocessing \
+    --data_dir /path/to/raw/images \
+    --output_dir processed_dataset \
+    --limit 100 \
+    --gpu
+```
+
+#### Parameters
+| Parameter | Description | Default | Required |
+|-----------|-------------|---------|----------|
+| `--data_dir` | Directory containing treatment folders with images | - | ✓ |
+| `--output_dir` | Directory to save processed cells and metadata | `processed_dataset` | - |
+| `--limit` | Limit number of images per folder (for testing) | None | - |
+| `--gpu` | Use GPU for Cellpose model acceleration | True | - |
+
+#### Output Structure
+```
+processed_dataset/
+├── images/                            # Individual cell images
+│   ├── c8dd336c8bc5f8c0_001.png       # Cell 1 from hashed image
+│   ├── c8dd336c8bc5f8c0_002.png       # Cell 2 from same image
+│   └── ...
+├── metadata/                          # Processing metadata
+│   ├── F___Lac40_2k_cm2_summary.json  # Folder summary
+│   ├── F___Lac40_2k_cm2_c8dd336c_metadata.json  # Image metadata
+│   └── ...
+└── dataset.csv                        # Final consolidated dataset
+```
 
 ### Training Models (`scennia_train_model`)
-
 Train cell classification models with various architectures and hyperparameters.
 
 #### Basic Usage
-
 ```bash
 scennia_train_model --csv_path path/to/dataset.csv
 ```
 
 #### Advanced Usage
-
 ```bash
 scennia_train_model \
     --csv_path data/cells.csv \
@@ -56,7 +85,6 @@ scennia_train_model \
 ```
 
 #### Parameters
-
 | Parameter | Description | Default | Options |
 |-----------|-------------|---------|---------|
 | `--csv_path` | Path to dataset CSV file | **Required** | - |
@@ -78,17 +106,14 @@ scennia_train_model \
 | `--run_name` | Wandb run name | - | String |
 
 ### Cell Analysis App (`scennia_app`)
-
 Launch the interactive web application for cell analysis.
 
 #### Basic Usage
-
 ```bash
 scennia_app
 ```
 
 #### Advanced Usage
-
 ```bash
 scennia_app \
     --model_path models/cell_classifier.onnx \
@@ -97,7 +122,6 @@ scennia_app \
 ```
 
 #### Parameters
-
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | `--model_path` | Path to ONNX classification model | - |
@@ -106,7 +130,6 @@ scennia_app \
 | `--debug` | Run in debug mode | False |
 
 ## Model Architectures
-
 Scennia supports the following pre-trained model architectures:
 
 - **ResNet**: `resnet18`, `resnet50`
@@ -114,7 +137,6 @@ Scennia supports the following pre-trained model architectures:
 - **Vision Transformer**: `vit_b_16`
 
 ## Dataset Format
-
 | Column | Description | Example |
 |--------|-------------|---------|
 | `cell_path` | Path to the cell image file | `/shared-data/scennia/lactate-processed/images/c8dd336c8bc5f8c0f9b5ff372f310fba_001.png` |
@@ -133,7 +155,6 @@ Scennia supports the following pre-trained model architectures:
 | `image_hash` | Hash identifier for the image | `c8dd336c8bc5f8c0f9b5ff372f310fba` |
 
 ### Example CSV Row
-
 ```csv
 cell_path,cell_id,source_image,source_folder,treatment_type,concentration,density,area,perimeter,eccentricity,centroid_y,centroid_x,is_large,image_hash
 /shared-data/scennia/lactate-processed/images/c8dd336c8bc5f8c0f9b5ff372f310fba_001.png,1,/shared-data/scennia/lactate/F - Lac40 2k-cm2/25-039 47h F_0020_Trans.tiff,F___Lac40_2k_cm2,lactate,40.0,2.0,2738.0,304.3624817342638,0.9769353955157031,28.79108838568298,477.44229364499637,False,c8dd336c8bc5f8c0f9b5ff372f310fba
@@ -159,9 +180,9 @@ cell_path,cell_id,source_image,source_folder,treatment_type,concentration,densit
 ## Requirements
 
 - PyTorch Lightning
-- Weights & Biases (Wandb)
-- ONNX Runtime (for the app)
-- Additional dependencies as specified in requirements files
+- Weights & Biases (Wandb) for training
+- ONNX Runtime
+- Additional dependencies as specified the setup file (pyprojct.toml).
 
 ## Contributing
 
