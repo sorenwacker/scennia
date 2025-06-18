@@ -1,7 +1,9 @@
 import base64
 import hashlib
 import io
+from timeit import default_timer as timer
 
+import dash
 import numpy as np
 import plotly.graph_objects as go
 from PIL import Image
@@ -48,7 +50,24 @@ def calculate_image_hash(image: ImageFile) -> str:
     return hashlib.md5(image.tobytes()).hexdigest()
 
 
-def update_full_figure_layout(fig: go.Figure, width, height, has_cell_data=False, show_segmentation=True):
+# Create a cell crop, returning an uncompressed cropped image of the cell.
+def crop_cell(image: ImageFile, bbox: list[int], padding=10) -> Image.Image:
+    # Get bounding box with padding
+    y0, x0, y1, x1 = bbox
+    padding = 10
+    y0 = max(0, y0 - padding)
+    x0 = max(0, x0 - padding)
+    y1 = min(image.height, y1 + padding)
+    x1 = min(image.width, x1 + padding)
+
+    # Create a cropped version
+    image_array = np.asarray(image)
+    img_cropped = image_array[y0:y1, x0:x1]
+    return Image.fromarray(img_cropped)
+
+
+# Update image analysis figure layout
+def update_image_analysis_figure_layout(fig: go.Figure, width, height, has_cell_data=False, show_segmentation=True):
     # Update layout - we need fixed pixel coordinates, not aspect ratio preservation
     fig.update_layout(
         autosize=True,
@@ -103,8 +122,36 @@ def update_full_figure_layout(fig: go.Figure, width, height, has_cell_data=False
     return fig
 
 
-# Create visualization with all elements
-def create_complete_figure(encoded_image: EncodedImage, cells: list[Cell] | None, show_segmentation=True):
+# Create image analysis figure
+def create_image_analysis_figure(image: ImageFile) -> tuple[EncodedImage, go.Figure]:
+    # Encode to WebP
+    encode_start = timer()
+    encoded_image = encode_image(image)
+    dash.callback_context.record_timing("encode", timer() - encode_start, "Encode uploaded image")
+
+    # Create a figure with just the original image
+    figure_start = timer()
+    figure = go.Figure()
+    figure.add_layout_image({
+        "source": encoded_image.contents,
+        "xref": "x",
+        "yref": "y",
+        "x": 0,
+        "y": 0,
+        "sizex": encoded_image.width,
+        "sizey": encoded_image.height,
+        "sizing": "stretch",  # Use stretch for pixel-perfect mapping
+        "opacity": 1,
+        "layer": "below",
+    })
+    update_image_analysis_figure_layout(figure, image.width, image.height, False, False)
+    dash.callback_context.record_timing("figure", timer() - figure_start, "Create figure")
+
+    return (encoded_image, figure)
+
+
+# Create processed image analysis figure
+def create_processed_image_analysis_figure(encoded_image: EncodedImage, cells: dict[int, Cell], show_segmentation=True):
     """Create a complete figure with all elements, with annotations visible based on show_segmentation"""
 
     try:
@@ -126,78 +173,57 @@ def create_complete_figure(encoded_image: EncodedImage, cells: list[Cell] | None
         })
 
         # Add cell overlays if data exists
-        if cells:
-            for cell in cells:
-                predicted_props = cell.predicted_properties
+        for id, cell in cells.items():
+            # Create hover text with predicted properties
+            hover_lines = [f"<b>Cell {id}</b>"]
 
+            predicted_props = cell.predicted_properties
+            if predicted_props is not None:
                 # Color cells based on concentration level (ordinal)
-                if "concentration" in predicted_props:
-                    concentration = predicted_props.get("concentration", 0)
-                    color = get_concentration_color(concentration)
-                else:
-                    # Fallback to size-based coloring
-                    is_large = cell.is_large
-                    color = "green" if is_large else "red"
+                color = get_concentration_color(predicted_props.concentration)
+                hover_lines.append(f"Class: {predicted_props.predicted_class}")
+                hover_lines.append(f"Confidence: {predicted_props.confidence:.2f}")
+                hover_lines.append(f"Concentration: {predicted_props.concentration}")
+            else:
+                # Fallback to size-based coloring
+                is_large = cell.is_large
+                color = "green" if is_large else "red"
+                hover_lines.append(f"Size: {int(cell.area)} pixels")
 
-                # Create hover text with predicted properties
-                hover_lines = [f"<b>Cell {cell.id}</b>"]
+            hover_lines.append("<b>Click for details</b>")
+            hover_text = "<br>".join(hover_lines)
 
-                if "predicted_class" in predicted_props:
-                    hover_lines.append(f"Class: {predicted_props['predicted_class']}")
-                    hover_lines.append(f"Confidence: {predicted_props.get('confidence', 0):.2f}")
-                    concentration = predicted_props.get("concentration", 0)
-                    hover_lines.append(f"Concentration: {concentration}")
-                else:
-                    hover_lines.append(f"Size: {int(cell.area)} pixels")
-
-                hover_lines.append("<b>Click for details</b>")
-                hover_text = "<br>".join(hover_lines)
-
-                # Draw contours around cells with hover text and click events.
-                if len(cell.contour) > 0:
-                    (r, g, b) = hex_to_rgb(color)
-                    y, x = cell.contour
-                    fig.add_trace(
-                        go.Scatter(
-                            x=x,
-                            y=y,
-                            mode="lines",
-                            fill="toself",
-                            fillcolor=f"rgba({r},{g},{b},0.1)",
-                            line={"color": color},
-                            hoveron="fills",
-                            hoverinfo="text",
-                            hoverlabel={"bgcolor": f"rgba({r},{g},{b},0.5)"},
-                            hovertext=hover_text,
-                            # We need to use name instead of hovertext when using hoveron="fills".
-                            # See: https://stackoverflow.com/a/57937013
-                            name=hover_text,
-                            customdata=[cell.id],  # Store cell ID for click events
-                            showlegend=False,
-                            visible=show_segmentation,
-                        )
+            # Draw contours around cells with hover text and click events.
+            if len(cell.contour) > 0:
+                (r, g, b) = hex_to_rgb(color)
+                y, x = cell.contour
+                fig.add_trace(
+                    go.Scatter(
+                        x=x,
+                        y=y,
+                        mode="lines",
+                        fill="toself",
+                        fillcolor=f"rgba({r},{g},{b},0.1)",
+                        line={"color": color},
+                        hoveron="fills",
+                        hoverinfo="text",
+                        hoverlabel={"bgcolor": f"rgba({r},{g},{b},0.5)"},
+                        hovertext=hover_text,
+                        # We need to use name instead of hovertext when using hoveron="fills".
+                        # See: https://stackoverflow.com/a/57937013
+                        name=hover_text,
+                        customdata=[cell.id],  # Store cell ID for click events
+                        showlegend=False,
+                        visible=show_segmentation,
                     )
+                )
 
-        update_full_figure_layout(fig, encoded_image.width, encoded_image.height, cells is not None, show_segmentation)
+        update_image_analysis_figure_layout(
+            fig, encoded_image.width, encoded_image.height, cells is not None, show_segmentation
+        )
 
         return fig
 
     except Exception as e:
         print(f"Error creating complete figure: {e!s}")
         return None
-
-
-# Create a cell crop, returning an uncompressed cropped image of the cell.
-def crop_cell(image: ImageFile, bbox: list[int], padding=10) -> Image.Image:
-    # Get bounding box with padding
-    y0, x0, y1, x1 = bbox
-    padding = 10
-    y0 = max(0, y0 - padding)
-    x0 = max(0, x0 - padding)
-    y1 = min(image.height, y1 + padding)
-    x1 = min(image.width, x1 + padding)
-
-    # Create a cropped version
-    image_array = np.asarray(image)
-    img_cropped = image_array[y0:y1, x0:x1]
-    return Image.fromarray(img_cropped)
