@@ -290,6 +290,7 @@ class DataManager:
     def __try_load_uncompressed_image(self, hash: str, extension: str):
         if hash not in self.uncompressed_images:
             try:
+                print(f"Loading uncompressed image for hash '{hash}' from disk")
                 uncompressed_image = self.disk_cache.load_uncompressed_image(hash, extension)
                 if uncompressed_image is not None:
                     self.uncompressed_images[hash] = uncompressed_image
@@ -318,6 +319,7 @@ class DataManager:
     def __try_load_compressed_image(self, hash: str):
         if hash not in self.compressed_images:
             try:
+                print(f"Loading compressed image for hash '{hash}' from disk")
                 compressed_image = self.disk_cache.load_compressed_image(hash)
                 if compressed_image is not None:
                     self.compressed_images[hash] = compressed_image
@@ -363,6 +365,7 @@ class DataManager:
     def __try_load_image_data(self, hash: str):
         if hash not in self.image_data:
             try:
+                print(f"Loading image data for hash '{hash}' from disk")
                 image_data = self.disk_cache.load_image_data(hash)
                 if image_data is not None:
                     self.image_data[hash] = image_data
@@ -406,6 +409,7 @@ class DataManager:
     def __try_load_processed_data(self, hash: str):
         if hash not in self.processed_data:
             try:
+                print(f"Loading processed data for hash '{hash}' from disk")
                 processed_data = self.disk_cache.load_processed_data(hash)
                 if processed_data is not None:
                     self.processed_data[hash] = processed_data
