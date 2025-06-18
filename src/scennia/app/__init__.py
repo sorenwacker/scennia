@@ -1,5 +1,6 @@
 import argparse
 from timeit import default_timer as timer
+from typing import Any
 
 import dash
 import dash_bootstrap_components as dbc
@@ -24,7 +25,6 @@ from scennia.app.data import (
 )
 from scennia.app.image import (
     calculate_image_hash,
-    create_image_analysis_figure,
     create_processed_image_analysis_figure,
     crop_cell,
     decode_image,
@@ -32,10 +32,8 @@ from scennia.app.image import (
     get_concentration_color,
 )
 from scennia.app.layout import (
-    cell_info_placeholder,
     cell_info_processed_placeholder,
     create_layout,
-    summary_uploaded_placeholder,
 )
 from scennia.app.model import model_manager
 
@@ -162,10 +160,12 @@ def show_prepared_images(_):
     prepared_images = DATA_MANAGER.get_prepared_images()
     options = []
     for i, prepared_image in enumerate(prepared_images):
-        encoded_image = encode_image(prepared_image.compressed_image)
-        DATA_MANAGER.set_encoded_image(prepared_image.hash, encoded_image)
+        image_data = DATA_MANAGER.get_image_data(prepared_image.hash)
+        if image_data is None:
+            encoded_image = encode_image(prepared_image.compressed_image)
+            image_data = DATA_MANAGER.update_image_data(prepared_image.hash, ImageData(encoded_image=encoded_image))
         options.append({
-            "label": html.Img(src=encoded_image.contents, className="w-100 h-100 rounded"),
+            "label": html.Img(src=image_data.encoded_image.contents, className="w-100 h-100 rounded"),
             "value": i,
             "input_id": f"prepared-image-input-{i}",
             "value_id": f"prepared-image-value-{i}",
@@ -184,15 +184,15 @@ def show_prepared_images(_):
         Output("image-hash-store", "data", allow_duplicate=True),
     ],
     Input("prepared-images", "value"),
+    State("show-segmentation", "value"),
     background=False,
     running=[  # Disable prepared images, upload, and process while running.
         (Output("prepared-images", "disabled"), True, False),
         (Output("upload-image", "disabled"), True, False),
-        (Output("process-button", "disabled"), True, False),
     ],
     prevent_initial_call=True,
 )
-def show_prepared_image(index):
+def show_prepared_image(index, show_segmentation):
     if index is None:
         raise dash.exceptions.PreventUpdate
 
@@ -204,28 +204,29 @@ def show_prepared_image(index):
     hash = prepared_image.hash
     print(f"Show prepared image: {index} with hash {hash}")
 
-    # Create image analysis figure
-    encoded_image, figure = create_image_analysis_figure(image)
+    # Encode image
+    encoded_image = encode_image(image)
 
-    # Update data
-    DATA_MANAGER.set_encoded_image(hash, encoded_image)
+    # Update image data
+    image_data = DATA_MANAGER.update_image_data(hash, ImageData(encoded_image=encoded_image))
 
     # Get actual lacate concentration and file name if available
-    image_data = DATA_MANAGER.get_image_data(hash)
     actual_lactate_concentration = ""
     file_name = ""
-    if image_data is not None:
-        meta_data = image_data.meta_data
-        if meta_data is not None:
-            actual_lactate_concentration = f"Actual lactate concentration: {meta_data.actual_lactate_concentration}mM"
-            file_name = f"File: {meta_data.file_name}"
+    meta_data = image_data.meta_data
+    if meta_data is not None:
+        actual_lactate_concentration = f"Actual lactate concentration: {meta_data.actual_lactate_concentration}mM"
+        file_name = f"File: {meta_data.file_name}"
+
+    # Process image
+    figure, summary = process_image(hash, image_data, show_segmentation)
 
     return (
         figure,
         actual_lactate_concentration,
-        summary_uploaded_placeholder,
+        summary,
         file_name,
-        cell_info_placeholder,
+        cell_info_processed_placeholder,
         hash,
     )
 
@@ -241,16 +242,18 @@ def show_prepared_image(index):
         Output("image-hash-store", "data"),
     ],
     Input("upload-image", "contents"),
-    State("upload-image", "filename"),
+    [
+        State("upload-image", "filename"),
+        State("show-segmentation", "value"),
+    ],
     background=False,
     running=[  # Disable prepared images, upload, and process while running.
         (Output("prepared-images", "disabled"), True, False),
         (Output("upload-image", "disabled"), True, False),
-        (Output("process-button", "disabled"), True, False),
     ],
     prevent_initial_call=True,
 )
-def show_uploaded_image(contents, file_name):
+def show_uploaded_image(contents, file_name, show_segmentation):
     if contents is None or file_name is None:
         raise dash.exceptions.PreventUpdate
 
@@ -275,37 +278,44 @@ def show_uploaded_image(contents, file_name):
     dash.callback_context.record_timing(
         "save_uncompressed", timer() - save_uncompressed_start, "Save uncompressed image"
     )
+
+    # Save compressed image
     save_compressed_start = timer()
     DATA_MANAGER.save_compressed_image(hash, image)
     dash.callback_context.record_timing("save_compressed", timer() - save_compressed_start, "Save compressed image")
 
-    # Create image analysis figure
-    encoded_image, figure = create_image_analysis_figure(image)
+    # Encode image
+    encoded_image = encode_image(image)
 
-    actual_lactate_concentration = ""
-    if meta_data.actual_lactate_concentration is not None:
-        actual_lactate_concentration = f"Actual lactate concentration: {meta_data.actual_lactate_concentration}mM"
-
-    # Save data
+    # Update and save image data
     save_data_start = timer()
     image_data = ImageData(meta_data=meta_data, encoded_image=encoded_image)
     DATA_MANAGER.save_image_data(hash, image_data)
     dash.callback_context.record_timing("save_image_data", timer() - save_data_start, "Save image data")
 
+    # Get actual lacate concentration if available
+    actual_lactate_concentration = ""
+    if meta_data.actual_lactate_concentration is not None:
+        actual_lactate_concentration = f"Actual lactate concentration: {meta_data.actual_lactate_concentration}mM"
+
+    # Process image
+    figure, summary = process_image(hash, image_data, show_segmentation)
+
     return (
         figure,
         actual_lactate_concentration,
-        summary_uploaded_placeholder,
+        summary,
         f"File: {file_name}",
-        cell_info_placeholder,
+        cell_info_processed_placeholder,
         hash,
     )
 
 
 # Process the image and save the processed data
 def process_and_save_data(hash: str, image: ImageFile) -> ProcessedData:
+    print(f"Processing image with hash {hash}")
+
     # Process image
-    print("Processing image")
     cellpose_model = model_manager.get_cellpose_model()
 
     processing_start = timer()
@@ -394,37 +404,7 @@ def process_and_save_data(hash: str, image: ImageFile) -> ProcessedData:
     return processed_data
 
 
-# Process image callback
-@app.callback(
-    [
-        Output("image-analysis", "figure", allow_duplicate=True),
-        Output("summary", "children", allow_duplicate=True),
-        Output("cell-info", "children", allow_duplicate=True),
-    ],
-    Input("process-button", "n_clicks"),
-    [
-        State("image-hash-store", "data"),
-        State("show-segmentation", "value"),
-    ],
-    background=False,
-    running=[  # Disable prepared images, upload, and process while running.
-        (Output("prepared-images", "disabled"), True, False),
-        (Output("upload-image", "disabled"), True, False),
-        (Output("process-button", "disabled"), True, False),
-    ],
-    prevent_initial_call=True,
-)
-def process_image_callback(n_clicks, hash, show_segmentation):
-    if n_clicks is None or hash is None:
-        raise dash.exceptions.PreventUpdate
-
-    # Get image data
-    image_data_start = timer()
-    image_data = DATA_MANAGER.get_image_data(hash)
-    dash.callback_context.record_timing("get_image_data", timer() - image_data_start, "Get image data")
-    if image_data is None:
-        print("process_image: no image data available; skip")
-        raise dash.exceptions.PreventUpdate
+def process_image(hash: str, image_data: ImageData, show_segmentation: bool) -> tuple[go.Figure, Any]:
     meta_data = image_data.meta_data
     encoded_image = image_data.encoded_image
 
@@ -557,15 +537,9 @@ def process_image_callback(n_clicks, hash, show_segmentation):
     dash.callback_context.record_timing("summary", timer() - summary_start, "Create summary")
 
     # Create processed image analysis figure
-    figure_start = timer()
     figure = create_processed_image_analysis_figure(encoded_image, cells, show_segmentation)
-    dash.callback_context.record_timing("figure", timer() - figure_start, "Create figure")
 
-    return (
-        figure,
-        summary_content,
-        cell_info_processed_placeholder,
-    )
+    return figure, summary_content
 
 
 # Show clicked cell callback
@@ -600,18 +574,21 @@ def show_clicked_cell_callback(click_data, hash):
     cropped_encoded_images = processed_data.cropped_encoded_images
     cells = processed_data.cells
 
+    # Find clicked cell
     find_start = timer()
+
     # Get click coordinates
     if "points" not in click_data or not click_data["points"] or len(click_data["points"]) == 0:
-        return html.Div(), html.P("Click on a cell to view its details", className="text-muted")
-
+        print("show_clicked_cell: no points in click data; skip")
+        raise dash.exceptions.PreventUpdate
     point = click_data["points"][0]
 
-    # Check for customdata
+    # Check customdata
     if "customdata" not in point:
         # No customdata, use closest cell approach
         if "x" not in point or "y" not in point:
-            return html.Div(), html.P("Click on a cell to view its details", className="text-muted")
+            print("show_clicked_cell: no x or y in point; skip")
+            raise dash.exceptions.PreventUpdate
 
         click_x = point["x"]
         click_y = point["y"]
@@ -632,7 +609,7 @@ def show_clicked_cell_callback(click_data, hash):
         # Set a maximum distance threshold (radius squared)
         max_distance_threshold = 30 * 30  # 30 pixel radius
         if min_distance > max_distance_threshold:
-            return html.Div(), html.P("Click closer to a cell center to view its details", className="text-muted")
+            return html.P("Click closer to a cell center to view its details", className="text-muted")
 
         # We found a cell close to the click
         cell = closest_cell
@@ -645,7 +622,7 @@ def show_clicked_cell_callback(click_data, hash):
                 # Fixed ternary operator (SIM108)
                 cell_id = customdata[0][0] if isinstance(customdata[0], list) else customdata[0]
             else:
-                return html.Div(), html.P("Invalid click data", className="text-muted")
+                return html.P("Invalid click data", className="text-muted")
         else:
             # Direct value
             cell_id = customdata
@@ -656,7 +633,7 @@ def show_clicked_cell_callback(click_data, hash):
 
     # If no cell was found, show a placeholder.
     if not cell:
-        return html.Div(), html.P(f"Cell data not found for ID {cell_id}", className="text-muted")
+        return html.P(f"Cell data not found for ID {cell_id}", className="text-muted")
 
     # Get cropped image
     cropped_encoded_image = cropped_encoded_images[cell_id]

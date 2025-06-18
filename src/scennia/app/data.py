@@ -378,33 +378,28 @@ class DataManager:
         self.__try_load_image_data(hash)
         return self.image_data.get(hash)
 
-    # Set the encoded image of the image data by hash
-    def set_encoded_image(self, hash: str, encoded_image: EncodedImage):
-        self.__try_load_image_data(hash)
-        cached_image_data = self.image_data.get(hash)
-        if cached_image_data is not None:
-            cached_image_data.encoded_image = encoded_image
-        else:
-            self.image_data[hash] = ImageData(encoded_image=encoded_image)
-
-    # Set image data by hash
-    def set_image_data(self, hash: str, image_data: ImageData):
+    # Update image data by hash, and get the updated image data
+    def update_image_data(self, hash: str, image_data: ImageData) -> ImageData:
         self.__try_load_image_data(hash)
         cached_image_data = self.image_data.get(hash)
         if cached_image_data is None:
             self.image_data[hash] = image_data
-        else:
-            cached_image_data.meta_data = image_data.meta_data
-            cached_image_data.encoded_image = image_data.encoded_image
+            return image_data
 
-    # Set and save image data
-    def save_image_data(self, hash: str, image_data: ImageData):
-        self.set_image_data(hash, image_data)
+        if image_data.meta_data is not None:
+            cached_image_data.meta_data = image_data.meta_data
+        cached_image_data.encoded_image = image_data.encoded_image
+        return cached_image_data
+
+    # Update and save image data, and get the updated image data
+    def save_image_data(self, hash: str, image_data: ImageData) -> ImageData:
+        updated_image_data = self.update_image_data(hash, image_data)
         try:
             self.disk_cache.save_image_data(hash, image_data)
         except Exception:
             print(f"Failed to save image data for hash '{hash}'; continuing without data saved")
             traceback.print_exc()
+        return updated_image_data
 
     def __try_load_processed_data(self, hash: str):
         if hash not in self.processed_data:
@@ -422,19 +417,20 @@ class DataManager:
         self.__try_load_processed_data(hash)
         return self.processed_data.get(hash)
 
-    # Set processed data by hash
-    def set_processed_data(self, hash: str, processed_data: ProcessedData):
+    # Update processed data by hash
+    def update_processed_data(self, hash: str, processed_data: ProcessedData):
         self.__try_load_processed_data(hash)
         cached_processed_data = self.processed_data.get(hash)
         if cached_processed_data is None:
             self.processed_data[hash] = processed_data
         else:
+            cached_processed_data.cropped_encoded_images = processed_data.cropped_encoded_images
             cached_processed_data.cells = processed_data.cells
             cached_processed_data.aggregate_data = processed_data.aggregate_data
 
-    # Set and save processed data by hash
+    # Update and save processed data by hash
     def save_processed_data(self, hash: str, processed_data: ProcessedData):
-        self.set_processed_data(hash, processed_data)
+        self.update_processed_data(hash, processed_data)
         try:
             self.disk_cache.save_processed_data(hash, processed_data)
         except Exception:

@@ -123,12 +123,7 @@ def update_image_analysis_figure_layout(fig: go.Figure, width, height, has_cell_
 
 
 # Create image analysis figure
-def create_image_analysis_figure(image: ImageFile) -> tuple[EncodedImage, go.Figure]:
-    # Encode to WebP
-    encode_start = timer()
-    encoded_image = encode_image(image)
-    dash.callback_context.record_timing("encode", timer() - encode_start, "Encode uploaded image")
-
+def create_image_analysis_figure(encoded_image: EncodedImage) -> tuple[EncodedImage, go.Figure]:
     # Create a figure with just the original image
     figure_start = timer()
     figure = go.Figure()
@@ -144,86 +139,82 @@ def create_image_analysis_figure(image: ImageFile) -> tuple[EncodedImage, go.Fig
         "opacity": 1,
         "layer": "below",
     })
-    update_image_analysis_figure_layout(figure, image.width, image.height, False, False)
+    update_image_analysis_figure_layout(figure, encoded_image.width, encoded_image.height, False, False)
     dash.callback_context.record_timing("figure", timer() - figure_start, "Create figure")
 
-    return (encoded_image, figure)
+    return encoded_image, figure
 
 
 # Create processed image analysis figure
 def create_processed_image_analysis_figure(encoded_image: EncodedImage, cells: dict[int, Cell], show_segmentation=True):
     """Create a complete figure with all elements, with annotations visible based on show_segmentation"""
+    # Create the base figure with the original image
+    figure_start = timer()
+    figure = go.Figure()
 
-    try:
-        # Create the base figure with the original image
-        fig = go.Figure()
+    # Add the original image as the base layer
+    figure.add_layout_image({
+        "source": encoded_image.contents,
+        "xref": "x",
+        "yref": "y",
+        "x": 0,
+        "y": 0,
+        "sizex": encoded_image.width,
+        "sizey": encoded_image.height,
+        "sizing": "stretch",  # Use stretch for pixel-perfect mapping
+        "opacity": 1,
+        "layer": "below",
+    })
 
-        # Add the original image as the base layer
-        fig.add_layout_image({
-            "source": encoded_image.contents,
-            "xref": "x",
-            "yref": "y",
-            "x": 0,
-            "y": 0,
-            "sizex": encoded_image.width,
-            "sizey": encoded_image.height,
-            "sizing": "stretch",  # Use stretch for pixel-perfect mapping
-            "opacity": 1,
-            "layer": "below",
-        })
+    # Add cell overlays if data exists
+    for id, cell in cells.items():
+        # Create hover text with predicted properties
+        hover_lines = [f"<b>Cell {id}</b>"]
 
-        # Add cell overlays if data exists
-        for id, cell in cells.items():
-            # Create hover text with predicted properties
-            hover_lines = [f"<b>Cell {id}</b>"]
+        predicted_props = cell.predicted_properties
+        if predicted_props is not None:
+            # Color cells based on concentration level (ordinal)
+            color = get_concentration_color(predicted_props.concentration)
+            hover_lines.append(f"Class: {predicted_props.predicted_class}")
+            hover_lines.append(f"Confidence: {predicted_props.confidence:.2f}")
+            hover_lines.append(f"Concentration: {predicted_props.concentration}")
+        else:
+            # Fallback to size-based coloring
+            is_large = cell.is_large
+            color = "green" if is_large else "red"
+            hover_lines.append(f"Size: {int(cell.area)} pixels")
 
-            predicted_props = cell.predicted_properties
-            if predicted_props is not None:
-                # Color cells based on concentration level (ordinal)
-                color = get_concentration_color(predicted_props.concentration)
-                hover_lines.append(f"Class: {predicted_props.predicted_class}")
-                hover_lines.append(f"Confidence: {predicted_props.confidence:.2f}")
-                hover_lines.append(f"Concentration: {predicted_props.concentration}")
-            else:
-                # Fallback to size-based coloring
-                is_large = cell.is_large
-                color = "green" if is_large else "red"
-                hover_lines.append(f"Size: {int(cell.area)} pixels")
+        hover_lines.append("<b>Click for details</b>")
+        hover_text = "<br>".join(hover_lines)
 
-            hover_lines.append("<b>Click for details</b>")
-            hover_text = "<br>".join(hover_lines)
-
-            # Draw contours around cells with hover text and click events.
-            if len(cell.contour) > 0:
-                (r, g, b) = hex_to_rgb(color)
-                y, x = cell.contour
-                fig.add_trace(
-                    go.Scatter(
-                        x=x,
-                        y=y,
-                        mode="lines",
-                        fill="toself",
-                        fillcolor=f"rgba({r},{g},{b},0.1)",
-                        line={"color": color},
-                        hoveron="fills",
-                        hoverinfo="text",
-                        hoverlabel={"bgcolor": f"rgba({r},{g},{b},0.5)"},
-                        hovertext=hover_text,
-                        # We need to use name instead of hovertext when using hoveron="fills".
-                        # See: https://stackoverflow.com/a/57937013
-                        name=hover_text,
-                        customdata=[cell.id],  # Store cell ID for click events
-                        showlegend=False,
-                        visible=show_segmentation,
-                    )
+        # Draw contours around cells with hover text and click events.
+        if len(cell.contour) > 0:
+            (r, g, b) = hex_to_rgb(color)
+            y, x = cell.contour
+            figure.add_trace(
+                go.Scatter(
+                    x=x,
+                    y=y,
+                    mode="lines",
+                    fill="toself",
+                    fillcolor=f"rgba({r},{g},{b},0.1)",
+                    line={"color": color},
+                    hoveron="fills",
+                    hoverinfo="text",
+                    hoverlabel={"bgcolor": f"rgba({r},{g},{b},0.5)"},
+                    hovertext=hover_text,
+                    # We need to use name instead of hovertext when using hoveron="fills".
+                    # See: https://stackoverflow.com/a/57937013
+                    name=hover_text,
+                    customdata=[cell.id],  # Store cell ID for click events
+                    showlegend=False,
+                    visible=show_segmentation,
                 )
+            )
 
-        update_image_analysis_figure_layout(
-            fig, encoded_image.width, encoded_image.height, cells is not None, show_segmentation
-        )
+    update_image_analysis_figure_layout(
+        figure, encoded_image.width, encoded_image.height, cells is not None, show_segmentation
+    )
+    dash.callback_context.record_timing("figure", timer() - figure_start, "Create figure")
 
-        return fig
-
-    except Exception as e:
-        print(f"Error creating complete figure: {e!s}")
-        return None
+    return figure

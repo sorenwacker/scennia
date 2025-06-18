@@ -77,12 +77,12 @@ def create_layout():
             ),
             dbc.CardBody([
                 dcc.Upload(
-                    html.Div(["Drag and Drop or ", html.A("Select an Image")]),
+                    html.Div(["Drag and Drop or ", html.A("Select an Image", className="link-primary")]),
                     id="upload-image",
                     style={
                         "width": "100%",
-                        "height": "66px",
-                        "lineHeight": "66px",
+                        "height": "130px",
+                        "lineHeight": "130px",
                         "borderWidth": "1px",
                         "borderStyle": "dashed",
                         "borderRadius": "5px",
@@ -90,14 +90,6 @@ def create_layout():
                     },
                     multiple=False,
                     accept="image/*",  # Accept only image files
-                ),
-                # Process button
-                dbc.Button(
-                    "Process Image",
-                    id="process-button",
-                    color="primary",
-                    className="mt-3 w-100",
-                    disabled=True,
                 ),
             ]),
         ],
@@ -108,10 +100,10 @@ def create_layout():
             dbc.CardHeader(
                 children=dbc.Row(
                     children=[
-                        dbc.Col(className="col-auto me-auto", children="Image Analysis"),
+                        dbc.Col(className="col-auto", children="Image Analysis"),
                         dbc.Col(id="actual-lactate-concentration", className="col-auto me-auto"),
                         dbc.Col(
-                            className="col-auto align-self-end",
+                            className="col-auto",
                             children=dbc.Switch(
                                 id="show-segmentation",
                                 label="Show Segmentation",
