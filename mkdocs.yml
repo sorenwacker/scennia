@@ -2,7 +2,9 @@ site_name: Documentation
 
 nav:
   - Home: index.md
+  - Code Reference: code_reference.md
   - Model training diagram: train_model.md
+  - Web App Data Flow diagram: web_app_data_flow.md
 
 theme: material
 

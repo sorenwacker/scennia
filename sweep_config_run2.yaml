@@ -1,0 +1,46 @@
+# sweep_config.yaml
+# Configuration for Weights & Biases hyperparameter sweep
+
+program: ./src/scennia/train_model.py
+project: scennia
+method: bayes  # or 'grid', 'random'
+
+metric:
+  name: val_f1
+  goal: maximize
+
+parameters:
+  csv_path:
+    value: /shared-data/scennia/lactate-processed/dataset.csv
+
+  model_name:
+    values: [efficientnet_b0, efficientnet_b1]
+
+  batch_size:
+    values: [32, 64]
+
+  img_size:
+    values: [224]
+
+  learning_rate:
+    values: [3e-3, 1e-3, 5e-4]
+
+  weight_decay:
+    values: [1e-6, 1e-5, 1e-4, 1e-3, 1e-2]
+
+  unfreeze_epochs:
+    values: [0, 3]
+
+  unfreeze_lr_reduction:
+    values: [1.0]
+
+  use_class_weights:
+    values: [true]
+
+  max_epochs:
+    value: 50
+
+# Early termination
+early_terminate:
+  type: hyperband
+  min_iter: 5
