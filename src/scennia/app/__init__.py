@@ -468,7 +468,12 @@ def display_clicked_image(index):
     dash.callback_context.record_timing("figure", timer() - figure_start, "Create figure")
 
     # Update store
-    IMAGE_DATA_STORE[image_hash] = ImageData(image, encoded_image)
+    if image_hash not in IMAGE_DATA_STORE:
+        IMAGE_DATA_STORE[image_hash] = ImageData(image, encoded_image)
+    else:
+        image_data = IMAGE_DATA_STORE[image_hash]
+        image_data.image = image
+        image_data.encoded_image = encoded_image
 
     return (
         fig,
@@ -583,7 +588,7 @@ def get_processed_data(image_hash) -> tuple[EncodedImage, list[Cell], AggregateD
 
     # Get from memory
     image_data = IMAGE_DATA_STORE[image_hash]
-    if len(image_data.cells) > 0:  # TODO: add a field to figure out if cells/aggregate_data have been set.
+    if image_data.aggregate_data is not None:
         print("Using memory cached results")
         return (image_data.encoded_image, image_data.cells, image_data.aggregate_data)
 
@@ -607,8 +612,8 @@ def get_processed_data(image_hash) -> tuple[EncodedImage, list[Cell], AggregateD
     processing_start = timer()
 
     # Convert uncompressed image to array for processing
-    uncompressed_image = image_data.uncompressed_image
-    image_array = np.asarray(uncompressed_image)
+    image = image_data.image
+    image_array = np.asarray(image)
 
     # Process with cellpose (using default values)
     flow_threshold = 0.4  # Default value
@@ -647,7 +652,7 @@ def get_processed_data(image_hash) -> tuple[EncodedImage, list[Cell], AggregateD
         )
 
         # Crop cell
-        cropped_uncompressed_image = crop_cell(uncompressed_image, cell.bbox)
+        cropped_uncompressed_image = crop_cell(image, cell.bbox)
         cropped_uncompressed_images[str(cell_id)] = cropped_uncompressed_image
 
         # Perform classification if model is available
@@ -955,22 +960,22 @@ def display_selected_cell(click_data, image_hash):
         else:
             print("Creating cropped image dynamically (fallback)")
 
-            uncompressed_image = image_data.uncompressed_image
+            encoded_image = image_data.encoded_image
 
             # Create the cropped image dynamically (fallback)
             y0, x0, y1, x1 = cell.bbox
             padding = 10
             y0 = max(0, y0 - padding)
             x0 = max(0, x0 - padding)
-            y1 = min(uncompressed_image.height, y1 + padding)
-            x1 = min(uncompressed_image.width, x1 + padding)
+            y1 = min(encoded_image.height, y1 + padding)
+            x1 = min(encoded_image.width, x1 + padding)
 
             # Create a zoomed-in view of the cell
             cell_fig = go.Figure()
 
             # Add the original image
             cell_fig.add_layout_image({
-                "source": uncompressed_image,  # TODO: use encoded image
+                "source": encoded_image,
                 "xref": "x",
                 "yref": "y",
                 "x": 0,

@@ -42,11 +42,16 @@ class AggregateData(BaseModel):
 
 @dataclass
 class ImageData:
-    uncompressed_image: ImageFile
+    # Uncompressed image
+    image: ImageFile
+    # Compressed and img-src encoded image
     encoded_image: EncodedImage
+    # Cropped compressed and img-src encoded images, per cell.
     cropped_encoded_images: dict[str, EncodedImage] = field(default_factory=dict)
+    # Cells detected in the image
     cells: list[Cell] = field(default_factory=list)
-    aggregate_data: AggregateData = field(default_factory=AggregateData)
+    # Aggregate data about the image
+    aggregate_data: AggregateData | None = None
 
 
 class DiskCacheData(BaseModel):
