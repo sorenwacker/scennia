@@ -137,7 +137,7 @@ scennia_app \
 Scennia supports the following pre-trained model architectures:
 
 - **ResNet**: `resnet18`, `resnet50`
-- **EfficientNet**: `efficientnet_b0`, `efficientnet_b1`  
+- **EfficientNet**: `efficientnet_b0`, `efficientnet_b1`
 - **Vision Transformer**: `vit_b_16`
 
 ## Dataset Format
@@ -202,4 +202,3 @@ Name | Email | Role
 ---- | ----- | ---
 Nergis Tömen | N.Tomen@tudelft.nl | Project Lead
 Josh Flack | J.E.Flack@tudelft.nl | Project Lead
-
