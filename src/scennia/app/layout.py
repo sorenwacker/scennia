@@ -71,7 +71,7 @@ def create_layout():
         children=[
             dbc.CardHeader(
                 children=dbc.Row([
-                    dbc.Col("Image Upload", className="col-auto"),
+                    dbc.Col("Image Upload", className="col-auto me-auto"),
                     dbc.Col(id="image-filename", className="col-auto"),
                 ])
             ),
@@ -153,7 +153,14 @@ def create_layout():
     )
     summary_card = dbc.Card(
         children=[
-            dbc.CardHeader("Summary"),
+            dbc.CardHeader(
+                children=dbc.Row(
+                    children=[
+                        dbc.Col(className="col-auto", children="Summary"),
+                        dbc.Col(id="detected-cell-count", className="col-auto me-auto"),
+                    ],
+                ),
+            ),
             dbc.CardBody(
                 dcc.Loading(
                     id="loading-summary",
@@ -168,7 +175,15 @@ def create_layout():
     cell_info_card = dbc.Card(
         className="mh-100 h-100",
         children=[
-            dbc.CardHeader("Cell Info"),
+            dbc.CardHeader(
+                children=dbc.Row(
+                    children=[
+                        dbc.Col(className="col-auto", children="Cell Info"),
+                        dbc.Col(id="cell-lactate-concentration", className="col-auto me-auto"),
+                        dbc.Col(id="cell-id", className="col-auto"),
+                    ],
+                ),
+            ),
             dbc.CardBody([
                 dcc.Loading(
                     id="loading-cell-info",
@@ -190,6 +205,10 @@ def create_layout():
 
     return dbc.Container(
         fluid=True,
+        style={
+            "min-width": "1250px",
+            "max-width": "1400px",
+        },
         children=[
             # Row: Title
             dbc.Row(className="row-cols-1 g-2", children=[dbc.Col(title)]),

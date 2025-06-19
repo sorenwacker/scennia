@@ -176,10 +176,13 @@ def show_prepared_images(_):
 # Show prepared image callback
 @app.callback(
     [
-        Output("image-analysis", "figure", allow_duplicate=True),
         Output("actual-lactate-concentration", "children", allow_duplicate=True),
+        Output("image-analysis", "figure", allow_duplicate=True),
+        Output("detected-cell-count", "children", allow_duplicate=True),
         Output("summary", "children", allow_duplicate=True),
         Output("image-filename", "children", allow_duplicate=True),
+        Output("cell-lactate-concentration", "children", allow_duplicate=True),
+        Output("cell-id", "children", allow_duplicate=True),
         Output("cell-info", "children", allow_duplicate=True),
         Output("image-hash-store", "data", allow_duplicate=True),
     ],
@@ -219,13 +222,16 @@ def show_prepared_image(index, show_segmentation):
         file_name = f"File: {meta_data.file_name}"
 
     # Process image
-    figure, summary = process_image(hash, image_data, show_segmentation)
+    figure, cell_count, summary = process_image(hash, image_data, show_segmentation)
 
     return (
-        figure,
         actual_lactate_concentration,
+        figure,
+        f"Detected {cell_count} cells",
         summary,
         file_name,
+        "",
+        "",
         cell_info_processed_placeholder,
         hash,
     )
@@ -234,12 +240,15 @@ def show_prepared_image(index, show_segmentation):
 # Show uploaded image callback
 @app.callback(
     [
-        Output("image-analysis", "figure", allow_duplicate=True),
         Output("actual-lactate-concentration", "children", allow_duplicate=True),
+        Output("image-analysis", "figure", allow_duplicate=True),
+        Output("detected-cell-count", "children", allow_duplicate=True),
         Output("summary", "children", allow_duplicate=True),
         Output("image-filename", "children", allow_duplicate=True),
+        Output("cell-lactate-concentration", "children", allow_duplicate=True),
+        Output("cell-id", "children", allow_duplicate=True),
         Output("cell-info", "children", allow_duplicate=True),
-        Output("image-hash-store", "data"),
+        Output("image-hash-store", "data", allow_duplicate=True),
     ],
     Input("upload-image", "contents"),
     [
@@ -299,13 +308,16 @@ def show_uploaded_image(contents, file_name, show_segmentation):
         actual_lactate_concentration = f"Actual lactate concentration: {meta_data.actual_lactate_concentration}mM"
 
     # Process image
-    figure, summary = process_image(hash, image_data, show_segmentation)
+    figure, cell_count, summary = process_image(hash, image_data, show_segmentation)
 
     return (
-        figure,
         actual_lactate_concentration,
+        figure,
+        f"Detected {cell_count} cells",
         summary,
         f"File: {file_name}",
+        "",
+        "",
         cell_info_processed_placeholder,
         hash,
     )
@@ -404,7 +416,7 @@ def process_and_save_data(hash: str, image: ImageFile) -> ProcessedData:
     return processed_data
 
 
-def process_image(hash: str, image_data: ImageData, show_segmentation: bool) -> tuple[go.Figure, Any]:
+def process_image(hash: str, image_data: ImageData, show_segmentation: bool) -> tuple[go.Figure, int, Any]:
     meta_data = image_data.meta_data
     encoded_image = image_data.encoded_image
 
@@ -539,11 +551,13 @@ def process_image(hash: str, image_data: ImageData, show_segmentation: bool) -> 
     # Create processed image analysis figure
     figure = create_processed_image_analysis_figure(encoded_image, cells, show_segmentation)
 
-    return figure, summary_content
+    return figure, total_cells, summary_content
 
 
 # Show clicked cell callback
 @app.callback(
+    Output("cell-lactate-concentration", "children", allow_duplicate=True),
+    Output("cell-id", "children", allow_duplicate=True),
     Output("cell-info", "children", allow_duplicate=True),
     Input("image-analysis", "clickData"),
     [
@@ -641,6 +655,7 @@ def show_clicked_cell_callback(click_data, hash):
     # Determine border color based on prediction or size
     show_cropped_start = timer()
     predicted_properties = cell.predicted_properties
+    concentration = None
     if predicted_properties is not None:
         concentration = predicted_properties.concentration
         border_color = get_concentration_color(concentration)
@@ -784,7 +799,11 @@ def show_clicked_cell_callback(click_data, hash):
         )
     dash.callback_context.record_timing("details", timer() - details_start, "Create details")
 
-    return cell_info
+    return (
+        f"Lactate concentration: {concentration}mM" if concentration is not None else "",
+        f"#{cell_id}" if cell_id is not None else "",
+        cell_info,
+    )
 
 
 def main():
