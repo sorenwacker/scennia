@@ -11,6 +11,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from dash import DiskcacheManager, dcc, html
 from dash.dependencies import Input, Output, State
+from dash.development.base_component import ComponentType
 from PIL.Image import Image
 from PIL.ImageFile import ImageFile
 from skimage.measure import find_contours, regionprops
@@ -30,7 +31,7 @@ from scennia.app.image import (
     crop_cell,
     decode_image,
     encode_image,
-    get_concentration_color,
+    get_concentration_darker_color,
 )
 from scennia.app.layout import (
     cell_info_processed_placeholder,
@@ -495,8 +496,7 @@ def create_summary(processed_data: ProcessedData) -> Any:
                 ])
             )
         )
-    summary_content = [
-        html.H5(f"Detected {len(cells)} cells"),
+    summary_content: list[ComponentType] = [
         html.Ul(summary_list),
     ]
 
@@ -514,9 +514,9 @@ def create_summary(processed_data: ProcessedData) -> Any:
 
                 plot_data.append({
                     "Class": class_name,
-                    "Concentration": concentration,
+                    "Concentration": f"{concentration}",  # Convert to string to use discrete values on x axis
                     "Count": count,
-                    "Color": get_concentration_color(concentration),
+                    "Color": get_concentration_darker_color(concentration),
                 })
 
             df_plot = pd.DataFrame(plot_data)
@@ -526,8 +526,10 @@ def create_summary(processed_data: ProcessedData) -> Any:
                 df_plot,
                 x="Concentration",
                 y="Count",
-                title="Cell Count by Concentration Level",
-                labels={"Concentration": "Concentration Level", "Count": "Number of Cells"},
+                title="Cell Count by Lactate Concentration",
+                labels={"Concentration": "Lactate Concentration [mM]", "Count": "Number of Cells"},
+                text="Count",
+                text_auto=True,
                 color="Color",
                 color_discrete_map={row["Color"]: row["Color"] for _, row in df_plot.iterrows()},
             )
@@ -538,13 +540,11 @@ def create_summary(processed_data: ProcessedData) -> Any:
                 margin={"l": 20, "r": 20, "t": 40, "b": 20},
                 font={"size": 12},
                 showlegend=False,  # Hide color legend since colors are self-explanatory
-                xaxis={
-                    "tickmode": "array",
-                    "tickvals": all_concentrations,
-                    "ticktext": [f"{c}" for c in all_concentrations],
-                    "title": "Concentration Level",
-                },
             )
+
+            # Disable zoom
+            fig_bar.update_xaxes(fixedrange=True)
+            fig_bar.update_yaxes(fixedrange=True)
 
             # Add concentration labels on hover
             fig_bar.update_traces(hovertemplate="<b>%{x}</b><br>Count: %{y}<extra></extra>")
@@ -675,7 +675,7 @@ def show_clicked_cell_callback(click_data, hash):
     concentration = None
     if predicted_properties is not None:
         concentration = predicted_properties.concentration
-        border_color = get_concentration_color(concentration)
+        border_color = get_concentration_darker_color(concentration)
     else:
         border_color = "green" if cell.is_large else "red"
 
@@ -764,9 +764,8 @@ def show_clicked_cell_callback(click_data, hash):
 
     # Create cell details with predicted properties
     details_start = timer()
-    cell_info: list = [
+    cell_info: list[ComponentType] = [
         cell_image,
-        html.H5(f"Cell {cell.id} Details", style={"color": border_color}),
     ]
 
     # Add classification results if available

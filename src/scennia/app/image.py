@@ -27,6 +27,19 @@ def get_concentration_color(concentration):
     return color_map.get(concentration, "#808080")  # Gray for unknown
 
 
+def get_concentration_darker_color(concentration):
+    """Get color for concentration, darker for white background"""
+    color_map = {
+        0: "#c0c6ca",
+        5: "#9bb9d7",
+        10: "#80c0ff",
+        20: "#4da6ff",
+        40: "#ff8000",
+        80: "#ff0000",
+    }
+    return color_map.get(concentration, "#808080")
+
+
 # Decode image from base64
 def decode_image(contents: str) -> ImageFile:
     _, content_string = contents.split(",")
