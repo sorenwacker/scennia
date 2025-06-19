@@ -373,10 +373,8 @@ def process_and_save_data(hash: str, image: ImageFile) -> ProcessedData:
     median_area = np.median([p.area for p in props]) if props else 0
     mean_area = np.mean([p.area for p in props]) if props else 0
 
-    # Cells by ID
-    cells: dict[int, Cell] = {}
-    # Cropped images by ID
-    cropped_images: dict[int, Image] = {}
+    cells: dict[int, Cell] = {}  # Cells by ID
+    cropped_images: dict[int, Image] = {}  # Cropped images by ID
 
     crop_and_classify_start = timer()
     for i, prop in enumerate(props):
@@ -475,16 +473,13 @@ def create_summary(processed_data: ProcessedData) -> Any:
 
     summary_start = timer()
 
-    class_counts = {}  # For all classes: {class_name: count}
     concentration_counts = {}  # For concentrations: {concentration: count}
     classification_available = False
     for cell in cells.values():
         predicted_properties = cell.predicted_properties
         if predicted_properties is not None:
             classification_available = True
-            predicted_class = predicted_properties.predicted_class
             concentration = predicted_properties.concentration
-            class_counts[predicted_class] = class_counts.get(predicted_class, 0) + 1
             concentration_counts[concentration] = concentration_counts.get(concentration, 0) + 1
 
     summary_content: list[ComponentType] = []
@@ -580,6 +575,9 @@ def show_clicked_cell_callback(click_data, hash):
         print("show_clicked_cell: no image data; skip")
         raise dash.exceptions.PreventUpdate
     encoded_image = image_data.encoded_image
+    actual_lactate_concentration = None
+    if image_data.meta_data is not None:
+        actual_lactate_concentration = image_data.meta_data.actual_lactate_concentration
 
     # Get processed data
     processed_data_start = timer()
@@ -762,19 +760,23 @@ def show_clicked_cell_callback(click_data, hash):
 
     # Add classification results if available
     if predicted_properties is not None:
+        facts = [
+            html.Li(f"Lactate concentration: {predicted_properties.concentration}mM"),
+            html.Li(f"Confidence: {predicted_properties.confidence:.2f}"),
+        ]
+        if actual_lactate_concentration is not None:
+            facts.append(
+                html.Li(
+                    f"Conclusion: {cell.lactate_resistance_english(actual_lactate_concentration)}", className="fw-bold"
+                )
+            )
         cell_info.append(
             html.Div(
-                [
-                    html.H6("Cell Classification"),
-                    html.Ul(
-                        className="my-0",
-                        children=[  # ", className="fw-bold"
-                            html.Li(f"Lactate concentration: {predicted_properties.concentration}mM"),
-                            html.Li(f"Confidence: {predicted_properties.confidence:.3f}"),
-                        ],
-                    ),
-                ],
                 className="p-2 my-3 border rounded border-primary-subtle bg-secondary-subtle",
+                children=[
+                    html.H6("Cell Classification"),
+                    html.Ul(className="my-0", children=facts),
+                ],
             )
         )
 

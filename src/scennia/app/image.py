@@ -163,6 +163,11 @@ def create_processed_image_analysis_figure(
     image_data: ImageData, processed_data: ProcessedData, show_segmentation=True
 ):
     """Create a complete figure with all elements, with annotations visible based on show_segmentation"""
+
+    actual_lactate_concentration = None
+    if image_data.meta_data is not None:
+        actual_lactate_concentration = image_data.meta_data.actual_lactate_concentration
+
     # Create the base figure with the original image
     figure_start = timer()
     figure = go.Figure()
@@ -192,16 +197,19 @@ def create_processed_image_analysis_figure(
         if predicted_props is not None:
             # Color cells based on concentration level (ordinal)
             color = get_concentration_color(predicted_props.concentration)
-            hover_lines.append(f"Class: {predicted_props.predicted_class}")
+            hover_lines.append(f"Lactate concentration: {predicted_props.concentration}mM")
             hover_lines.append(f"Confidence: {predicted_props.confidence:.2f}")
-            hover_lines.append(f"Concentration: {predicted_props.concentration}")
+            if actual_lactate_concentration is not None:
+                hover_lines.append(
+                    f"<b>Conclusion: {cell.lactate_resistance_english(actual_lactate_concentration)}</b>"
+                )
         else:
             # Fallback to size-based coloring
             is_large = cell.is_large
             color = "green" if is_large else "red"
             hover_lines.append(f"Size: {int(cell.area)} pixels")
 
-        hover_lines.append("<b>Click for details</b>")
+        hover_lines.append("<br><u>Click for more info</u>")
         hover_text = "<br>".join(hover_lines)
 
         # Draw contours around cells with hover text and click events.

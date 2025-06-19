@@ -105,6 +105,27 @@ class Cell(BaseModel):
     contour: list[list[float]]
     predicted_properties: CellPrediction | None = None
 
+    # Gets the lactate resistance of the cell. Negative is resistant, 0 is neutral, positive is not resistant.
+    def lactate_resistance(self, actual_lactate_concentration: int) -> int | None:
+        if self.predicted_properties is None:
+            return None
+        return actual_lactate_concentration - self.predicted_properties.concentration
+
+    # Gets the lactate resistance of the cell in english.
+    def lactate_resistance_english(self, actual_lactate_concentration: int) -> str | None:
+        lactate_resistance = self.lactate_resistance(actual_lactate_concentration)
+        if lactate_resistance is None:
+            return None
+        if lactate_resistance <= -40:
+            return "very likely lactate resistant"
+        if lactate_resistance < 0:
+            return "likely lactate resistant"
+        if lactate_resistance == 0:
+            return "neutral"
+        if lactate_resistance > 40:
+            return "very likely NOT lactate resistant"
+        return "likely NOT lactate resistant"
+
 
 # Processed data for an image with cells
 class ProcessedData(BaseModel):
