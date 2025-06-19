@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from dash import DiskcacheManager, dcc, html
+from dash import DiskcacheManager, dcc, html, set_props
 from dash.dependencies import Input, Output, State
 from dash.development.base_component import ComponentType
 from PIL.Image import Image
@@ -179,14 +179,8 @@ def show_prepared_images(_):
 # Show prepared image callback
 @app.callback(
     [
-        Output("actual-lactate-concentration", "children", allow_duplicate=True),
         Output("image-analysis", "figure", allow_duplicate=True),
-        Output("detected-cell-count", "children", allow_duplicate=True),
         Output("summary", "children", allow_duplicate=True),
-        Output("image-filename", "children", allow_duplicate=True),
-        Output("cell-lactate-concentration", "children", allow_duplicate=True),
-        Output("cell-id", "children", allow_duplicate=True),
-        Output("cell-info", "children", allow_duplicate=True),
         Output("image-hash-store", "data", allow_duplicate=True),
     ],
     Input("prepared-images", "value"),
@@ -223,6 +217,8 @@ def show_prepared_image(index, show_segmentation):
     if meta_data is not None:
         actual_lactate_concentration = f"Actual lactate concentration: {meta_data.actual_lactate_concentration}mM"
         file_name = f"File: {meta_data.file_name}"
+    set_props("actual-lactate-concentration", {"children": actual_lactate_concentration})
+    set_props("image-filename", {"children": file_name})
 
     # Process image
     processed_data = get_processed_data_or_process_image(hash, image_data)
@@ -234,16 +230,16 @@ def show_prepared_image(index, show_segmentation):
         figure = create_image_analysis_figure(encoded_image)
         cell_count = ""
         summary = summary_placeholder
+    set_props("detected-cell-count", {"children": cell_count})
+
+    # Reset cell info to placeholders
+    set_props("cell-lactate-concentration", {"children": ""})
+    set_props("cell-id", {"children": ""})
+    set_props("cell-info", {"children": cell_info_processed_placeholder})
 
     return (
-        actual_lactate_concentration,
         figure,
-        cell_count,
         summary,
-        file_name,
-        "",
-        "",
-        cell_info_processed_placeholder,
         hash,
     )
 
@@ -251,14 +247,8 @@ def show_prepared_image(index, show_segmentation):
 # Show uploaded image callback
 @app.callback(
     [
-        Output("actual-lactate-concentration", "children", allow_duplicate=True),
         Output("image-analysis", "figure", allow_duplicate=True),
-        Output("detected-cell-count", "children", allow_duplicate=True),
         Output("summary", "children", allow_duplicate=True),
-        Output("image-filename", "children", allow_duplicate=True),
-        Output("cell-lactate-concentration", "children", allow_duplicate=True),
-        Output("cell-id", "children", allow_duplicate=True),
-        Output("cell-info", "children", allow_duplicate=True),
         Output("image-hash-store", "data", allow_duplicate=True),
     ],
     Input("upload-image", "contents"),
@@ -278,6 +268,7 @@ def show_uploaded_image(contents, file_name, show_segmentation):
         raise dash.exceptions.PreventUpdate
 
     print(f"Show uploaded image: {file_name}")
+    set_props("image-filename", {"children": file_name})
 
     # Get meta data from file name
     meta_data = ImageMetaData(file_name=file_name)
@@ -317,6 +308,7 @@ def show_uploaded_image(contents, file_name, show_segmentation):
     actual_lactate_concentration = ""
     if meta_data.actual_lactate_concentration is not None:
         actual_lactate_concentration = f"Actual lactate concentration: {meta_data.actual_lactate_concentration}mM"
+    set_props("actual-lactate-concentration", {"children": actual_lactate_concentration})
 
     # Process image
     processed_data = get_processed_data_or_process_image(hash, image_data)
@@ -328,16 +320,16 @@ def show_uploaded_image(contents, file_name, show_segmentation):
         figure = create_image_analysis_figure(encoded_image)
         cell_count = ""
         summary = summary_placeholder
+    set_props("detected-cell-count", {"children": cell_count})
+
+    # Reset cell info to placeholders
+    set_props("cell-lactate-concentration", {"children": ""})
+    set_props("cell-id", {"children": ""})
+    set_props("cell-info", {"children": cell_info_processed_placeholder})
 
     return (
-        actual_lactate_concentration,
         figure,
-        cell_count,
         summary,
-        f"File: {file_name}",
-        "",
-        "",
-        cell_info_processed_placeholder,
         hash,
     )
 
@@ -573,8 +565,6 @@ def create_summary(processed_data: ProcessedData) -> Any:
 
 # Show clicked cell callback
 @app.callback(
-    Output("cell-lactate-concentration", "children", allow_duplicate=True),
-    Output("cell-id", "children", allow_duplicate=True),
     Output("cell-info", "children", allow_duplicate=True),
     Input("image-analysis", "clickData"),
     [
@@ -683,7 +673,13 @@ def show_clicked_cell_callback(click_data, hash):
         # Use the cached cropped image directly
         cell_image = html.Img(
             src=cropped_encoded_image.contents,
-            style={"width": "100%", "border": f"3px solid {border_color}"},
+            className="img-fluid",
+            style={
+                "width": "100%",
+                "max-height": "400px",
+                "object-fit": "cover",
+                "border": f"3px solid {border_color}",
+            },
         )
     else:
         print("Creating cropped image dynamically (fallback)")
@@ -815,11 +811,13 @@ def show_clicked_cell_callback(click_data, hash):
         )
     dash.callback_context.record_timing("details", timer() - details_start, "Create details")
 
-    return (
-        f"Lactate concentration: {concentration}mM" if concentration is not None else "",
-        f"#{cell_id}" if cell_id is not None else "",
-        cell_info,
+    set_props(
+        "cell-lactate-concentration",
+        {"children": f"Lactate concentration: {concentration}mM" if concentration is not None else ""},
     )
+    set_props("cell-id", {"children": f"#{cell_id}" if cell_id is not None else ""})
+
+    return cell_info
 
 
 def main():
