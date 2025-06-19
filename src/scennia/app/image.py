@@ -1,14 +1,16 @@
 import base64
 import hashlib
 import io
+from timeit import default_timer as timer
 
+import dash
 import numpy as np
 import plotly.graph_objects as go
 from PIL import Image
 from PIL.ImageFile import ImageFile
 from plotly.colors import hex_to_rgb
 
-from scennia.app.data import Cell, EncodedImage
+from scennia.app.data import EncodedImage, ImageData, ProcessedData
 
 
 def get_concentration_color(concentration):
@@ -23,6 +25,19 @@ def get_concentration_color(concentration):
         80: "#ff0000",  # Red
     }
     return color_map.get(concentration, "#808080")  # Gray for unknown
+
+
+def get_concentration_darker_color(concentration):
+    """Get color for concentration, darker for white background"""
+    color_map = {
+        0: "#c0c6ca",
+        5: "#9bb9d7",
+        10: "#80c0ff",
+        20: "#4da6ff",
+        40: "#ff8000",
+        80: "#ff0000",
+    }
+    return color_map.get(concentration, "#808080")
 
 
 # Decode image from base64
@@ -48,143 +63,6 @@ def calculate_image_hash(image: ImageFile) -> str:
     return hashlib.md5(image.tobytes()).hexdigest()
 
 
-def update_full_figure_layout(fig: go.Figure, width, height, has_cell_data=False, show_annotations=True):
-    # Update layout - we need fixed pixel coordinates, not aspect ratio preservation
-    fig.update_layout(
-        autosize=True,
-        height=600,
-        margin={"l": 0, "r": 0, "t": 0, "b": 0},
-        showlegend=False,
-        plot_bgcolor="rgba(0,0,0,0)",
-        paper_bgcolor="rgba(0,0,0,0)",
-        clickmode="event",
-        # Add helpful annotation
-        annotations=[
-            {
-                "text": "Click on any colored circle to view cell details",
-                "x": 0.5,
-                "y": 0.01,
-                "xref": "paper",
-                "yref": "paper",
-                "showarrow": False,
-                "font": {"size": 14},
-                "bgcolor": "rgba(255,255,255,0.7)",
-                "bordercolor": "gray",
-                "borderwidth": 1,
-                "borderpad": 4,
-                "visible": bool(has_cell_data and show_annotations),
-            }
-        ]
-        if has_cell_data
-        else [],
-    )
-
-    # Update axes
-    fig.update_xaxes(
-        range=[0, width],
-        showticklabels=False,
-        showgrid=False,
-        zeroline=False,
-        visible=False,
-        constrain="domain",  # This helps maintain image dimensions
-    )
-    fig.update_yaxes(
-        range=[height, 0],  # Reverse y-axis to match image coordinates
-        showticklabels=False,
-        showgrid=False,
-        zeroline=False,
-        visible=False,
-        scaleanchor="x",  # Preserve aspect ratio
-        scaleratio=1.0,  # 1:1 aspect ratio
-    )
-
-    return fig
-
-
-# Create visualization with all elements
-def create_complete_figure(encoded_image: EncodedImage, cells: list[Cell] | None, show_annotations=True):
-    """Create a complete figure with all elements, with annotations visible based on show_annotations"""
-
-    try:
-        # Create the base figure with the original image
-        fig = go.Figure()
-
-        # Add the original image as the base layer
-        fig.add_layout_image({
-            "source": encoded_image.contents,
-            "xref": "x",
-            "yref": "y",
-            "x": 0,
-            "y": 0,
-            "sizex": encoded_image.width,
-            "sizey": encoded_image.height,
-            "sizing": "stretch",  # Use stretch for pixel-perfect mapping
-            "opacity": 1,
-            "layer": "below",
-        })
-
-        # Add cell overlays if data exists
-        if cells:
-            for cell in cells:
-                predicted_props = cell.predicted_properties
-
-                # Color cells based on concentration level (ordinal)
-                if "concentration" in predicted_props:
-                    concentration = predicted_props.get("concentration", 0)
-                    color = get_concentration_color(concentration)
-                else:
-                    # Fallback to size-based coloring
-                    is_large = cell.is_large
-                    color = "green" if is_large else "red"
-
-                # Create hover text with predicted properties
-                hover_lines = [f"<b>Cell {cell.id}</b>"]
-
-                if "predicted_class" in predicted_props:
-                    hover_lines.append(f"Class: {predicted_props['predicted_class']}")
-                    hover_lines.append(f"Confidence: {predicted_props.get('confidence', 0):.2f}")
-                    concentration = predicted_props.get("concentration", 0)
-                    hover_lines.append(f"Concentration: {concentration}")
-                else:
-                    hover_lines.append(f"Size: {int(cell.area)} pixels")
-
-                hover_lines.append("<b>Click for details</b>")
-                hover_text = "<br>".join(hover_lines)
-
-                # Draw contours around cells with hover text and click events.
-                if len(cell.contour) > 0:
-                    (r, g, b) = hex_to_rgb(color)
-                    y, x = cell.contour
-                    fig.add_trace(
-                        go.Scatter(
-                            x=x,
-                            y=y,
-                            mode="lines",
-                            fill="toself",
-                            fillcolor=f"rgba({r},{g},{b},0.1)",
-                            line={"color": color},
-                            hoveron="fills",
-                            hoverinfo="text",
-                            hoverlabel={"bgcolor": f"rgba({r},{g},{b},0.5)"},
-                            hovertext=hover_text,
-                            # We need to use name instead of hovertext when using hoveron="fills".
-                            # See: https://stackoverflow.com/a/57937013
-                            name=hover_text,
-                            customdata=[cell.id],  # Store cell ID for click events
-                            showlegend=False,
-                            visible=show_annotations,
-                        )
-                    )
-
-        update_full_figure_layout(fig, encoded_image.width, encoded_image.height, cells is not None, show_annotations)
-
-        return fig
-
-    except Exception as e:
-        print(f"Error creating complete figure: {e!s}")
-        return None
-
-
 # Create a cell crop, returning an uncompressed cropped image of the cell.
 def crop_cell(image: ImageFile, bbox: list[int], padding=10) -> Image.Image:
     # Get bounding box with padding
@@ -199,3 +77,161 @@ def crop_cell(image: ImageFile, bbox: list[int], padding=10) -> Image.Image:
     image_array = np.asarray(image)
     img_cropped = image_array[y0:y1, x0:x1]
     return Image.fromarray(img_cropped)
+
+
+# Update image analysis figure layout
+def update_image_analysis_figure_layout(fig: go.Figure, width, height, has_cell_data=False, show_segmentation=True):
+    # Update layout - we need fixed pixel coordinates, not aspect ratio preservation
+    fig.update_layout(
+        autosize=True,
+        height=600,
+        margin={"l": 0, "r": 0, "t": 0, "b": 0},
+        showlegend=False,
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
+        clickmode="event",
+        # Add helpful annotation
+        annotations=[
+            {
+                "text": "Click on a colored cell to view its details",
+                "x": 0.5,
+                "y": 0.01,
+                "xref": "paper",
+                "yref": "paper",
+                "showarrow": False,
+                "font": {"size": 14},
+                "bgcolor": "rgba(255,255,255,0.7)",
+                "bordercolor": "gray",
+                "borderwidth": 1,
+                "borderpad": 4,
+                "visible": bool(has_cell_data and show_segmentation),
+            }
+        ]
+        if has_cell_data
+        else [],
+    )
+
+    # Update axes
+    fig.update_xaxes(
+        range=[0, width],
+        showticklabels=False,
+        showgrid=False,
+        zeroline=False,
+        visible=False,
+        fixedrange=True,  # Disabled: zoom, doesn't seem to work well
+        constrain="domain",  # This helps maintain image dimensions
+    )
+    fig.update_yaxes(
+        range=[height, 0],  # Reverse y-axis to match image coordinates
+        showticklabels=False,
+        showgrid=False,
+        zeroline=False,
+        visible=False,
+        fixedrange=True,  # Disabled: zoom, doesn't seem to work well
+        scaleanchor="x",  # Preserve aspect ratio
+        scaleratio=1.0,  # 1:1 aspect ratio
+    )
+
+    return fig
+
+
+# Create image analysis figure
+def create_image_analysis_figure(encoded_image: EncodedImage) -> tuple[EncodedImage, go.Figure]:
+    # Create a figure with just the original image
+    figure_start = timer()
+    figure = go.Figure()
+    figure.add_layout_image({
+        "source": encoded_image.contents,
+        "xref": "x",
+        "yref": "y",
+        "x": 0,
+        "y": 0,
+        "sizex": encoded_image.width,
+        "sizey": encoded_image.height,
+        "sizing": "stretch",  # Use stretch for pixel-perfect mapping
+        "opacity": 1,
+        "layer": "below",
+    })
+    update_image_analysis_figure_layout(figure, encoded_image.width, encoded_image.height, False, False)
+    dash.callback_context.record_timing("figure", timer() - figure_start, "Create figure")
+
+    return encoded_image, figure
+
+
+# Create processed image analysis figure
+def create_processed_image_analysis_figure(
+    image_data: ImageData, processed_data: ProcessedData, show_segmentation=True
+):
+    """Create a complete figure with all elements, with annotations visible based on show_segmentation"""
+    # Create the base figure with the original image
+    figure_start = timer()
+    figure = go.Figure()
+
+    # Add the original image as the base layer
+    encoded_image = image_data.encoded_image
+    figure.add_layout_image({
+        "source": encoded_image.contents,
+        "xref": "x",
+        "yref": "y",
+        "x": 0,
+        "y": 0,
+        "sizex": encoded_image.width,
+        "sizey": encoded_image.height,
+        "sizing": "stretch",  # Use stretch for pixel-perfect mapping
+        "opacity": 1,
+        "layer": "below",
+    })
+
+    # Add cell overlays if data exists
+    cells = processed_data.cells
+    for id, cell in cells.items():
+        # Create hover text with predicted properties
+        hover_lines = [f"<b>Cell {id}</b>"]
+
+        predicted_props = cell.predicted_properties
+        if predicted_props is not None:
+            # Color cells based on concentration level (ordinal)
+            color = get_concentration_color(predicted_props.concentration)
+            hover_lines.append(f"Class: {predicted_props.predicted_class}")
+            hover_lines.append(f"Confidence: {predicted_props.confidence:.2f}")
+            hover_lines.append(f"Concentration: {predicted_props.concentration}")
+        else:
+            # Fallback to size-based coloring
+            is_large = cell.is_large
+            color = "green" if is_large else "red"
+            hover_lines.append(f"Size: {int(cell.area)} pixels")
+
+        hover_lines.append("<b>Click for details</b>")
+        hover_text = "<br>".join(hover_lines)
+
+        # Draw contours around cells with hover text and click events.
+        if len(cell.contour) > 0:
+            (r, g, b) = hex_to_rgb(color)
+            y, x = cell.contour
+            figure.add_trace(
+                go.Scatter(
+                    x=x,
+                    y=y,
+                    mode="lines",
+                    fill="toself",
+                    fillcolor=f"rgba({r},{g},{b},0.1)",
+                    line={"color": color},
+                    hoveron="fills",
+                    hoverinfo="text",
+                    hoverlabel={"bgcolor": f"rgba({r},{g},{b},0.5)"},
+                    hovertext=hover_text,
+                    # We need to use name instead of hovertext when using hoveron="fills".
+                    # See: https://stackoverflow.com/a/57937013
+                    name=hover_text,
+                    customdata=[cell.id],  # Store cell ID for click events
+                    showlegend=False,
+                    visible=show_segmentation,
+                )
+            )
+
+    update_image_analysis_figure_layout(
+        figure, encoded_image.width, encoded_image.height, cells is not None, show_segmentation
+    )
+    dash.callback_context.record_timing("figure", timer() - figure_start, "Create figure")
+
+    return figure
