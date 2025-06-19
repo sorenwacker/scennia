@@ -192,7 +192,6 @@ def create_processed_image_analysis_figure(
     for id, cell in cells.items():
         # Create hover text with predicted properties
         hover_lines = [f"<b>Cell {id}</b>"]
-
         predicted_props = cell.predicted_properties
         if predicted_props is not None:
             # Color cells based on concentration level (ordinal)
@@ -203,12 +202,6 @@ def create_processed_image_analysis_figure(
                 hover_lines.append(
                     f"<b>Conclusion: {cell.lactate_resistance_english(actual_lactate_concentration)}</b>"
                 )
-        else:
-            # Fallback to size-based coloring
-            is_large = cell.is_large
-            color = "green" if is_large else "red"
-            hover_lines.append(f"Size: {int(cell.area)} pixels")
-
         hover_lines.append("<br><u>Click for more info</u>")
         hover_text = "<br>".join(hover_lines)
 

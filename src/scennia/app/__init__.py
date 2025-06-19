@@ -39,6 +39,10 @@ from scennia.app.layout import (
 )
 from scennia.app.model import model_manager
 
+# Constants
+PIXEL_LENGTH_TO_MICROMETER = 1.0 / 3.46
+PIXEL_AREA_TO_MICROMETER = 1.0 / 12.0
+
 # Stored/cached data manager
 DATA_MANAGER = DataManager()
 
@@ -190,8 +194,8 @@ def set_header_info(image_data: ImageData, processed_data: ProcessedData | None)
     # Process image
     if processed_data is not None:
         cell_count = f"Detected {len(processed_data.cells)} cells"
-        median_cell_area = f"Median cell area: {processed_data.median_area:.2f}px"
-        mean_cell_area = f"Mean cell area: {processed_data.mean_area:.2f}px"
+        median_cell_area = f"Median cell area: {processed_data.median_area * PIXEL_AREA_TO_MICROMETER:.2f}μm"
+        mean_cell_area = f"Mean cell area: {processed_data.mean_area * PIXEL_AREA_TO_MICROMETER:.2f}μm"
     else:
         cell_count = ""
         median_cell_area = ""
@@ -758,7 +762,7 @@ def show_clicked_cell_callback(click_data, hash):
         cell_image,
     ]
 
-    # Add classification results if available
+    # Add classification if available
     if predicted_properties is not None:
         facts = [
             html.Li(f"Lactate concentration: {predicted_properties.concentration}mM"),
@@ -780,32 +784,19 @@ def show_clicked_cell_callback(click_data, hash):
             )
         )
 
-    # Add cell metadata
+    # Add cell data
     cell_info.extend([
         html.H6("Cell Data"),
         html.Ul(
             className="my-0",
             children=[
-                html.Li(f"Area: {int(cell.area)} pixels"),
-                html.Li(f"Perimeter: {cell.perimeter:.2f} pixels"),
+                html.Li(f"Area: {cell.area * PIXEL_AREA_TO_MICROMETER:.2f}μm"),
+                html.Li(f"Perimeter: {cell.perimeter * PIXEL_LENGTH_TO_MICROMETER:.2f}μm"),
                 html.Li(f"Eccentricity: {cell.eccentricity:.3f}"),
                 html.Li(f"Centroid: ({cell.centroid_x:.1f}, {cell.centroid_y:.1f})"),
             ],
         ),
     ])
-
-    # Add size classification for non-classified cells
-    if predicted_properties is None:
-        is_large = cell.is_large
-        cell_info.append(
-            html.P([
-                "Size Classification: ",
-                html.Span(
-                    "Large" if is_large else "Small",
-                    style={"color": "green" if is_large else "red", "fontWeight": "bold"},
-                ),
-            ])
-        )
     dash.callback_context.record_timing("details", timer() - details_start, "Create details")
 
     set_props(
