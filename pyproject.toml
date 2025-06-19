@@ -89,9 +89,12 @@ testpaths = [
   "tests",
 ]
 
-[tool.coverage]
-run.source = ["scennia"]
-port.exclude_lines = [
+[tool.coverage.run]
+source = ["scennia"]
+disable_warnings = ["no-data-collected"]
+
+[tool.coverage.report]
+exclude_lines = [
   'pragma: no cover',
   '\.\.\.',
   'if typing.TYPE_CHECKING:',
