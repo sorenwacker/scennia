@@ -44,6 +44,10 @@ dev-dependencies = [
 
 [tool.uv.sources]
 nx-cugraph-cu12 = { index = "nvidia" }
+torch = { index = "torch-gpu" }
+torchvision = { index = "torch-gpu" }
+torchaudio = { index = "torch-gpu" }
+torchmetrics = { index = "torch-gpu" }
 
 [[tool.uv.index]]
 name = "nvidia"
