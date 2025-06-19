@@ -4,10 +4,11 @@ import traceback
 from dataclasses import dataclass, field
 from os.path import exists, isfile, join
 
+import numpy as np
 from PIL import Image
 from PIL.ImageFile import ImageFile
 from pydantic import BaseModel, Field
-from pydantic_core import from_json, to_json
+from pydantic_core import to_json
 
 
 # Get the stem of given file name
@@ -105,11 +106,6 @@ class Cell(BaseModel):
     predicted_properties: CellPrediction | None = None
 
 
-# Aggregate data for an image with cells
-class AggregateData(BaseModel):
-    median_area: float = 0.0
-
-
 # Processed data for an image with cells
 class ProcessedData(BaseModel):
     # Cropped compressed and img-src encoded images, per cell ID.
@@ -117,7 +113,10 @@ class ProcessedData(BaseModel):
     # Cells detected in the image, per cell ID.
     cells: dict[int, Cell]
     # Aggregate data about the image
-    aggregate_data: AggregateData
+    # Median cell area
+    median_area: float = Field(default_factory=lambda data: float(np.median([c.area for c in data["cells"].values()])))
+    # Mean cell area
+    mean_area: float = Field(default_factory=lambda data: float(np.mean([c.area for c in data["cells"].values()])))
 
 
 # Prepared image
@@ -158,7 +157,7 @@ class DiskCache:
             path = self.__cache_path_exists("image_data.json", hash)
             if path is not None:
                 with open(path) as f:
-                    return ImageData.model_validate(from_json(f.read()))
+                    return ImageData.model_validate_json(f.read())
         except Exception as e:
             msg = "Error loading image data from disk cache"
             raise Exception(msg) from e
@@ -181,7 +180,7 @@ class DiskCache:
             path = self.__cache_path_exists("processed_data.json", hash)
             if path is not None:
                 with open(path) as f:
-                    return ProcessedData.model_validate(from_json(f.read()))
+                    return ProcessedData.model_validate_json(f.read())
         except Exception as e:
             msg = "Error loading processed data from disk cache"
             raise Exception(msg) from e
@@ -311,6 +310,7 @@ class DataManager:
     def save_uncompressed_image(self, hash: str, extension: str, image: ImageFile):
         self.set_uncompressed_image(hash, image)
         try:
+            print(f"Saving uncompressed image for hash '{hash}' to disk")
             self.disk_cache.save_uncompressed_image(hash, extension, image)
         except Exception:
             print(f"Failed to save uncompressed image for hash '{hash}'; continuing without image saved")
@@ -340,6 +340,7 @@ class DataManager:
     def save_compressed_image(self, hash: str, image: ImageFile):
         self.compressed_images[hash] = image
         try:
+            print(f"Saving compressed image for hash '{hash}' to disk")
             self.disk_cache.save_compressed_image(hash, image)
         except Exception:
             print(f"Failed to save compressed image for hash '{hash}'; continuing without image saved")
@@ -357,6 +358,7 @@ class DataManager:
     def save_cropped_compressed_images(self, hash: str, images: dict[int, Image.Image]):
         self.cropped_compressed_images[hash] = images
         try:
+            print(f"Saving cropped compressed images for hash '{hash}' to disk")
             self.disk_cache.save_cropped_compressed_images(hash, images)
         except Exception:
             print(f"Failed to save cropped compressed images for hash '{hash}'; continuing without images saved")
@@ -385,7 +387,6 @@ class DataManager:
         if cached_image_data is None:
             self.image_data[hash] = image_data
             return image_data
-
         if image_data.meta_data is not None:
             cached_image_data.meta_data = image_data.meta_data
         cached_image_data.encoded_image = image_data.encoded_image
@@ -395,6 +396,7 @@ class DataManager:
     def save_image_data(self, hash: str, image_data: ImageData) -> ImageData:
         updated_image_data = self.update_image_data(hash, image_data)
         try:
+            print(f"Saving image data for hash '{hash}' to disk")
             self.disk_cache.save_image_data(hash, image_data)
         except Exception:
             print(f"Failed to save image data for hash '{hash}'; continuing without data saved")
@@ -418,24 +420,28 @@ class DataManager:
         return self.processed_data.get(hash)
 
     # Update processed data by hash
-    def update_processed_data(self, hash: str, processed_data: ProcessedData):
+    def update_processed_data(self, hash: str, processed_data: ProcessedData) -> ProcessedData:
         self.__try_load_processed_data(hash)
         cached_processed_data = self.processed_data.get(hash)
         if cached_processed_data is None:
             self.processed_data[hash] = processed_data
-        else:
-            cached_processed_data.cropped_encoded_images = processed_data.cropped_encoded_images
-            cached_processed_data.cells = processed_data.cells
-            cached_processed_data.aggregate_data = processed_data.aggregate_data
+            return processed_data
+        cached_processed_data.cropped_encoded_images = processed_data.cropped_encoded_images
+        cached_processed_data.cells = processed_data.cells
+        cached_processed_data.median_area = processed_data.median_area
+        cached_processed_data.mean_area = processed_data.mean_area
+        return cached_processed_data
 
     # Update and save processed data by hash
-    def save_processed_data(self, hash: str, processed_data: ProcessedData):
-        self.update_processed_data(hash, processed_data)
+    def save_processed_data(self, hash: str, processed_data: ProcessedData) -> ProcessedData:
+        updated_processed_data = self.update_processed_data(hash, processed_data)
         try:
+            print(f"Saving processed data for hash '{hash}' to disk")
             self.disk_cache.save_processed_data(hash, processed_data)
         except Exception:
             print(f"Failed to save processed data for hash '{hash}'; continuing without data saved")
             traceback.print_exc()
+        return updated_processed_data
 
     # Get prepared images
     def get_prepared_images(self) -> list[PreparedImage]:

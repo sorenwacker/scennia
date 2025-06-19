@@ -17,7 +17,6 @@ from PIL.ImageFile import ImageFile
 from skimage.measure import find_contours, regionprops
 
 from scennia.app.data import (
-    AggregateData,
     Cell,
     DataManager,
     ImageData,
@@ -176,6 +175,37 @@ def show_prepared_images(_):
     return options
 
 
+# Set header info. Shared code between `show_prepared_image` and `show_uploaded_image`.
+def set_header_info(image_data: ImageData, processed_data: ProcessedData | None):
+    # Get actual lacate concentration and file name if available
+    actual_lactate_concentration = ""
+    file_name = ""
+    meta_data = image_data.meta_data
+    if meta_data is not None:
+        actual_lactate_concentration = f"Actual lactate concentration: {meta_data.actual_lactate_concentration}mM"
+        file_name = f"File: {meta_data.file_name}"
+    set_props("actual-lactate-concentration", {"children": actual_lactate_concentration})
+    set_props("image-filename", {"children": file_name})
+
+    # Process image
+    if processed_data is not None:
+        cell_count = f"Detected {len(processed_data.cells)} cells"
+        median_cell_area = f"Median cell area: {processed_data.median_area:.2f}px"
+        mean_cell_area = f"Mean cell area: {processed_data.mean_area:.2f}px"
+    else:
+        cell_count = ""
+        median_cell_area = ""
+        mean_cell_area = ""
+    set_props("detected-cell-count", {"children": cell_count})
+    set_props("median-cell-area", {"children": median_cell_area})
+    set_props("mean-cell-area", {"children": mean_cell_area})
+
+    # Reset cell info to placeholders
+    set_props("cell-lactate-concentration", {"children": ""})
+    set_props("cell-id", {"children": ""})
+    set_props("cell-info", {"children": cell_info_processed_placeholder})
+
+
 # Show prepared image callback
 @app.callback(
     [
@@ -210,32 +240,21 @@ def show_prepared_image(index, show_segmentation):
     # Update image data
     image_data = DATA_MANAGER.update_image_data(hash, ImageData(encoded_image=encoded_image))
 
-    # Get actual lacate concentration and file name if available
-    actual_lactate_concentration = ""
-    file_name = ""
-    meta_data = image_data.meta_data
-    if meta_data is not None:
-        actual_lactate_concentration = f"Actual lactate concentration: {meta_data.actual_lactate_concentration}mM"
-        file_name = f"File: {meta_data.file_name}"
-    set_props("actual-lactate-concentration", {"children": actual_lactate_concentration})
-    set_props("image-filename", {"children": file_name})
-
     # Process image
     processed_data = get_processed_data_or_process_image(hash, image_data)
     if processed_data is not None:
         figure = create_processed_image_analysis_figure(image_data, processed_data, show_segmentation)
-        cell_count = f"Detected {len(processed_data.cells)} cells"
         summary = create_summary(processed_data)
     else:
         figure = create_image_analysis_figure(encoded_image)
-        cell_count = ""
         summary = summary_placeholder
-    set_props("detected-cell-count", {"children": cell_count})
 
-    # Reset cell info to placeholders
-    set_props("cell-lactate-concentration", {"children": ""})
-    set_props("cell-id", {"children": ""})
-    set_props("cell-info", {"children": cell_info_processed_placeholder})
+    # DEV: Save processed data in dev mode to save default values
+    if processed_data and app._dev_tools.hot_reload:
+        DATA_MANAGER.save_processed_data(hash, processed_data)
+
+    # Set header info
+    set_header_info(image_data, processed_data)
 
     return (
         figure,
@@ -304,28 +323,21 @@ def show_uploaded_image(contents, file_name, show_segmentation):
     DATA_MANAGER.save_image_data(hash, image_data)
     dash.callback_context.record_timing("save_image_data", timer() - save_data_start, "Save image data")
 
-    # Get actual lacate concentration if available
-    actual_lactate_concentration = ""
-    if meta_data.actual_lactate_concentration is not None:
-        actual_lactate_concentration = f"Actual lactate concentration: {meta_data.actual_lactate_concentration}mM"
-    set_props("actual-lactate-concentration", {"children": actual_lactate_concentration})
-
     # Process image
     processed_data = get_processed_data_or_process_image(hash, image_data)
     if processed_data is not None:
         figure = create_processed_image_analysis_figure(image_data, processed_data, show_segmentation)
-        cell_count = f"Detected {len(processed_data.cells)} cells"
         summary = create_summary(processed_data)
     else:
         figure = create_image_analysis_figure(encoded_image)
-        cell_count = ""
         summary = summary_placeholder
-    set_props("detected-cell-count", {"children": cell_count})
 
-    # Reset cell info to placeholders
-    set_props("cell-lactate-concentration", {"children": ""})
-    set_props("cell-id", {"children": ""})
-    set_props("cell-info", {"children": cell_info_processed_placeholder})
+    # DEV: Save processed data in dev mode to save default values
+    if processed_data and app._dev_tools.hot_reload:
+        DATA_MANAGER.save_processed_data(hash, processed_data)
+
+    # Set header info
+    set_header_info(image_data, processed_data)
 
     return (
         figure,
@@ -357,8 +369,9 @@ def process_and_save_data(hash: str, image: ImageFile) -> ProcessedData:
     mask = result[0][0]
     props = regionprops(mask)
 
-    # Calculate summary statistics
+    # Calculate aggregate data
     median_area = np.median([p.area for p in props]) if props else 0
+    mean_area = np.mean([p.area for p in props]) if props else 0
 
     # Cells by ID
     cells: dict[int, Cell] = {}
@@ -410,9 +423,11 @@ def process_and_save_data(hash: str, image: ImageFile) -> ProcessedData:
 
     # Save processed data
     save_processed_start = timer()
-    aggregate_data = AggregateData(median_area=float(median_area))
     processed_data = ProcessedData(
-        cropped_encoded_images=cropped_encoded_images, cells=cells, aggregate_data=aggregate_data
+        cropped_encoded_images=cropped_encoded_images,
+        cells=cells,
+        median_area=float(median_area),
+        mean_area=float(mean_area),
     )
     DATA_MANAGER.save_processed_data(hash, processed_data)
     dash.callback_context.record_timing("save_processed_data", timer() - save_processed_start, "Save processed data")
@@ -457,7 +472,6 @@ def get_processed_data_or_process_image(hash: str, image_data: ImageData) -> Pro
 # Creates a summary for given processed data
 def create_summary(processed_data: ProcessedData) -> Any:
     cells = processed_data.cells
-    aggregate_data = processed_data.aggregate_data
 
     summary_start = timer()
 
@@ -473,25 +487,7 @@ def create_summary(processed_data: ProcessedData) -> Any:
             class_counts[predicted_class] = class_counts.get(predicted_class, 0) + 1
             concentration_counts[concentration] = concentration_counts.get(concentration, 0) + 1
 
-    summary_list = [
-        html.Li(html.Span(f"Median cell area: {aggregate_data.median_area:.1f} pixels")),
-        html.Li(html.Span(f"Mean cell area: {np.mean([cell.area for cell in cells.values()]):.1f} pixels")),
-    ]
-    if classification_available:
-        # Create text summary
-        total_cells = sum(class_counts.values())
-        summary_list.append(
-            html.Li(
-                html.Span([
-                    "Cell classifications: ",
-                    html.Span(f"{total_cells} total cells classified", style={"fontWeight": "bold"}),
-                ])
-            )
-        )
-    summary_content: list[ComponentType] = [
-        html.Ul(summary_list),
-    ]
-
+    summary_content: list[ComponentType] = []
     if classification_available:
         # Create concentration distribution plot
         if concentration_counts:
@@ -769,32 +765,31 @@ def show_clicked_cell_callback(click_data, hash):
         cell_info.append(
             html.Div(
                 [
-                    html.H6("Classification Results:", className="mt-3 mb-2"),
-                    html.P(f"Predicted Class: {predicted_properties.predicted_class}", className="fw-bold"),
-                    html.P(f"Confidence: {predicted_properties.confidence:.3f}"),
-                    html.P(f"Concentration Level: {predicted_properties.concentration}"),
+                    html.H6("Cell Classification"),
+                    html.Ul(
+                        className="my-0",
+                        children=[  # ", className="fw-bold"
+                            html.Li(f"Lactate concentration: {predicted_properties.concentration}mM"),
+                            html.Li(f"Confidence: {predicted_properties.confidence:.3f}"),
+                        ],
+                    ),
                 ],
-                className="p-2 border rounded bg-light",
-            )
-        )
-    else:
-        cell_info.append(
-            html.Div(
-                [
-                    html.H6("Basic Prediction:", className="mt-3 mb-2"),
-                    html.P(f"Area: {int(cell.area)} pixels", className="fw-bold"),
-                ],
-                className="p-2 border rounded bg-light",
+                className="p-2 my-3 border rounded border-primary-subtle bg-secondary-subtle",
             )
         )
 
     # Add cell metadata
     cell_info.extend([
-        html.H6("Cell Metadata:", className="mt-3 mb-2"),
-        html.P(f"Area: {int(cell.area)} pixels"),
-        html.P(f"Perimeter: {cell.perimeter:.2f} pixels"),
-        html.P(f"Eccentricity: {cell.eccentricity:.3f}"),
-        html.P(f"Centroid: ({cell.centroid_x:.1f}, {cell.centroid_y:.1f})"),
+        html.H6("Cell Data"),
+        html.Ul(
+            className="my-0",
+            children=[
+                html.Li(f"Area: {int(cell.area)} pixels"),
+                html.Li(f"Perimeter: {cell.perimeter:.2f} pixels"),
+                html.Li(f"Eccentricity: {cell.eccentricity:.3f}"),
+                html.Li(f"Centroid: ({cell.centroid_x:.1f}, {cell.centroid_y:.1f})"),
+            ],
+        ),
     ])
 
     # Add size classification for non-classified cells

@@ -153,7 +153,9 @@ def create_layout():
                 children=dbc.Row(
                     children=[
                         dbc.Col(className="col-auto", children="Summary"),
-                        dbc.Col(id="detected-cell-count", className="col-auto me-auto"),
+                        dbc.Col(id="detected-cell-count", className="col-auto"),
+                        dbc.Col(id="median-cell-area", className="col-auto"),
+                        dbc.Col(id="mean-cell-area", className="col-auto me-auto"),
                     ],
                 ),
             ),
