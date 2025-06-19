@@ -5,7 +5,7 @@ from dash import dcc, html
 from scennia.app.image import update_image_analysis_figure_layout
 
 cell_info_placeholder = html.P(
-    "Process an image and then click on a cell to view details",
+    "Upload an image and then click on a cell to view details",
     className="text-muted m-0",
 )
 cell_info_processed_placeholder = html.P(
@@ -13,11 +13,7 @@ cell_info_processed_placeholder = html.P(
     className="text-muted m-0",
 )
 summary_placeholder = html.P(
-    "Upload and process an image to view the summary",
-    className="text-muted m-0",
-)
-summary_uploaded_placeholder = html.P(
-    "Process an image to view the summary",
+    "Upload an image to view the summary",
     className="text-muted m-0",
 )
 

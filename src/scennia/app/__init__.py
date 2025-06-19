@@ -25,6 +25,7 @@ from scennia.app.data import (
 )
 from scennia.app.image import (
     calculate_image_hash,
+    create_image_analysis_figure,
     create_processed_image_analysis_figure,
     crop_cell,
     decode_image,
@@ -34,6 +35,7 @@ from scennia.app.image import (
 from scennia.app.layout import (
     cell_info_processed_placeholder,
     create_layout,
+    summary_placeholder,
 )
 from scennia.app.model import model_manager
 
@@ -222,12 +224,20 @@ def show_prepared_image(index, show_segmentation):
         file_name = f"File: {meta_data.file_name}"
 
     # Process image
-    figure, cell_count, summary = process_image(hash, image_data, show_segmentation)
+    processed_data = get_processed_data_or_process_image(hash, image_data)
+    if processed_data is not None:
+        figure = create_processed_image_analysis_figure(image_data, processed_data, show_segmentation)
+        cell_count = f"Detected {len(processed_data.cells)} cells"
+        summary = create_summary(processed_data)
+    else:
+        figure = create_image_analysis_figure(encoded_image)
+        cell_count = ""
+        summary = summary_placeholder
 
     return (
         actual_lactate_concentration,
         figure,
-        f"Detected {cell_count} cells",
+        cell_count,
         summary,
         file_name,
         "",
@@ -308,12 +318,20 @@ def show_uploaded_image(contents, file_name, show_segmentation):
         actual_lactate_concentration = f"Actual lactate concentration: {meta_data.actual_lactate_concentration}mM"
 
     # Process image
-    figure, cell_count, summary = process_image(hash, image_data, show_segmentation)
+    processed_data = get_processed_data_or_process_image(hash, image_data)
+    if processed_data is not None:
+        figure = create_processed_image_analysis_figure(image_data, processed_data, show_segmentation)
+        cell_count = f"Detected {len(processed_data.cells)} cells"
+        summary = create_summary(processed_data)
+    else:
+        figure = create_image_analysis_figure(encoded_image)
+        cell_count = ""
+        summary = summary_placeholder
 
     return (
         actual_lactate_concentration,
         figure,
-        f"Detected {cell_count} cells",
+        cell_count,
         summary,
         f"File: {file_name}",
         "",
@@ -323,7 +341,7 @@ def show_uploaded_image(contents, file_name, show_segmentation):
     )
 
 
-# Process the image and save the processed data
+# Process the uncompressed image and saves the processed data
 def process_and_save_data(hash: str, image: ImageFile) -> ProcessedData:
     print(f"Processing image with hash {hash}")
 
@@ -416,36 +434,38 @@ def process_and_save_data(hash: str, image: ImageFile) -> ProcessedData:
     return processed_data
 
 
-def process_image(hash: str, image_data: ImageData, show_segmentation: bool) -> tuple[go.Figure, int, Any]:
-    meta_data = image_data.meta_data
-    encoded_image = image_data.encoded_image
-
-    # Get processed data
+# Gets the processed data if available in memory or disk store, or processes the image and saves the processed data.
+# Returns None if the image needs to be processed but the uncompressed image or image data is not available for `hash`.
+def get_processed_data_or_process_image(hash: str, image_data: ImageData) -> ProcessedData | None:
+    # Get processed data from memory or disk
     processed_data_start = timer()
     processed_data = DATA_MANAGER.get_processed_data(hash)
     dash.callback_context.record_timing("get_processed_data", timer() - processed_data_start, "Get processed data")
-    if processed_data is None:
-        if meta_data is None:
-            print("process_image: need to process image, but image metadata is not available; skip")
-            raise dash.exceptions.PreventUpdate
+    if processed_data is not None:
+        return processed_data
 
-        # Get uncompressed image
-        image = DATA_MANAGER.get_uncompressed_image(hash, meta_data.file_extension)
-        if image is None:
-            print("process_image: need to process image, but uncompressed image is not available; skip")
-            raise dash.exceptions.PreventUpdate
+    # Processed data not available, we need to process the image belonging to `hash`
+    # Get image metadata
+    meta_data = image_data.meta_data
+    if meta_data is None:
+        print("get_processed_data_or_process: need to process image, but image metadata is not available; skip")
+        return None
 
-        # Process image to get processed data, and also save it
-        processed_data = process_and_save_data(hash, image)
+    # Get uncompressed image
+    image = DATA_MANAGER.get_uncompressed_image(hash, meta_data.file_extension)
+    if image is None:
+        print("process_image: need to process image, but uncompressed image is not available; skip")
+        return None
 
-    if processed_data is None:
-        print("process_image: no processed data; skip")
-        raise dash.exceptions.PreventUpdate
+    # Process image to get processed data, and also save it
+    return process_and_save_data(hash, image)
 
+
+# Creates a summary for given processed data
+def create_summary(processed_data: ProcessedData) -> Any:
     cells = processed_data.cells
     aggregate_data = processed_data.aggregate_data
 
-    # Create summary content
     summary_start = timer()
 
     class_counts = {}  # For all classes: {class_name: count}
@@ -548,10 +568,7 @@ def process_image(hash: str, image_data: ImageData, show_segmentation: bool) -> 
         )
     dash.callback_context.record_timing("summary", timer() - summary_start, "Create summary")
 
-    # Create processed image analysis figure
-    figure = create_processed_image_analysis_figure(encoded_image, cells, show_segmentation)
-
-    return figure, total_cells, summary_content
+    return summary_content
 
 
 # Show clicked cell callback

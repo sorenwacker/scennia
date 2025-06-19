@@ -10,7 +10,7 @@ from PIL import Image
 from PIL.ImageFile import ImageFile
 from plotly.colors import hex_to_rgb
 
-from scennia.app.data import Cell, EncodedImage
+from scennia.app.data import EncodedImage, ImageData, ProcessedData
 
 
 def get_concentration_color(concentration):
@@ -146,13 +146,16 @@ def create_image_analysis_figure(encoded_image: EncodedImage) -> tuple[EncodedIm
 
 
 # Create processed image analysis figure
-def create_processed_image_analysis_figure(encoded_image: EncodedImage, cells: dict[int, Cell], show_segmentation=True):
+def create_processed_image_analysis_figure(
+    image_data: ImageData, processed_data: ProcessedData, show_segmentation=True
+):
     """Create a complete figure with all elements, with annotations visible based on show_segmentation"""
     # Create the base figure with the original image
     figure_start = timer()
     figure = go.Figure()
 
     # Add the original image as the base layer
+    encoded_image = image_data.encoded_image
     figure.add_layout_image({
         "source": encoded_image.contents,
         "xref": "x",
@@ -167,6 +170,7 @@ def create_processed_image_analysis_figure(encoded_image: EncodedImage, cells: d
     })
 
     # Add cell overlays if data exists
+    cells = processed_data.cells
     for id, cell in cells.items():
         # Create hover text with predicted properties
         hover_lines = [f"<b>Cell {id}</b>"]
