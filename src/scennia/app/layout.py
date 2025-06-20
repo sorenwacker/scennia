@@ -108,6 +108,16 @@ def create_layout():
                                 label_class_name="mb-0",
                             ),
                         ),
+                        dbc.Col(
+                            className="col-auto",
+                            children=dbc.Switch(
+                                id="show-classification",
+                                label="Show Classification",
+                                value=True,
+                                className="mb-0",
+                                label_class_name="mb-0",
+                            ),
+                        ),
                     ],
                 ),
             ),

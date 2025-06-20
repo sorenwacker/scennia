@@ -184,7 +184,7 @@ if __name__ == "__main__":
     Output("model-status", "children"),
     Input("upload-image", "id"),  # Trigger on app load by using a static component ID
 )
-def display_model_status(_):
+def show_model_status_callback(_):
     if MODEL_MANAGER.is_onnx_model_loaded() and MODEL_MANAGER.onnx_model_metadata is not None:
         return dbc.Alert(
             [
@@ -212,7 +212,7 @@ def display_model_status(_):
     Output("prepared-images", "options"),
     Input("upload-image", "id"),  # Trigger on app load by using a static component ID
 )
-def show_prepared_images(_):
+def show_prepared_images_callback(_):
     prepared_images = DATA_MANAGER.get_prepared_images()
     options = []
     for i, prepared_image in enumerate(prepared_images):
@@ -260,6 +260,15 @@ def set_header_info(image_data: ImageData, processed_data: ProcessedData | None)
     set_props("cell-info", {"children": cell_info_processed_placeholder})
 
 
+# Disable prepared images, upload, and switches while running.
+RUNNING_DISABLE = [
+    (Output("prepared-images", "disabled"), True, False),
+    (Output("upload-image", "disabled"), True, False),
+    (Output("show-classification", "disabled"), True, False),
+    (Output("show-segmentation", "disabled"), True, False),
+]
+
+
 # Show prepared image callback
 @app.callback(
     [
@@ -270,13 +279,10 @@ def set_header_info(image_data: ImageData, processed_data: ProcessedData | None)
     Input("prepared-images", "value"),
     State("show-segmentation", "value"),
     background=False,
-    running=[  # Disable prepared images, upload, and process while running.
-        (Output("prepared-images", "disabled"), True, False),
-        (Output("upload-image", "disabled"), True, False),
-    ],
+    running=RUNNING_DISABLE,
     prevent_initial_call=True,
 )
-def show_prepared_image(index, show_segmentation):
+def show_prepared_image_callback(index, show_segmentation):
     if index is None:
         raise dash.exceptions.PreventUpdate
 
@@ -330,13 +336,10 @@ def show_prepared_image(index, show_segmentation):
         State("show-segmentation", "value"),
     ],
     background=False,
-    running=[  # Disable prepared images, upload, and process while running.
-        (Output("prepared-images", "disabled"), True, False),
-        (Output("upload-image", "disabled"), True, False),
-    ],
+    running=RUNNING_DISABLE,
     prevent_initial_call=True,
 )
-def show_uploaded_image(contents, file_name, show_segmentation):
+def show_uploaded_image_callback(contents, file_name, show_segmentation):
     if contents is None or file_name is None:
         raise dash.exceptions.PreventUpdate
 
@@ -604,6 +607,46 @@ def create_summary(processed_data: ProcessedData) -> Any:
     dash.callback_context.record_timing("summary", timer() - summary_start, "Create summary")
 
     return summary_content
+
+
+# Classification switch toggled callback callback
+@app.callback(
+    [
+        Output("image-analysis", "figure", allow_duplicate=True),
+        Output("show-segmentation", "value", allow_duplicate=True),
+    ],
+    Input("show-classification", "value"),
+    [
+        State("image-hash-store", "data"),
+        State("show-segmentation", "value"),
+    ],
+    prevent_initial_call=True,
+)
+def classification_switch_toggled_callback(show_classification, hash, show_segmentation):
+    show_segmentation_update = dash.no_update
+    if not show_segmentation and show_classification:
+        # Auto-enable show segmentation when show classification is enabled
+        show_segmentation_update = True
+        show_segmentation = True
+
+    if hash is None:
+        # If there is no figure yet, just update the segmentation switch
+        return (dash.no_update, show_segmentation_update)
+
+    # Get image data
+    image_data = DATA_MANAGER.get_image_data(hash)
+    if image_data is None:
+        raise dash.exceptions.PreventUpdate
+
+    # Get processed data
+    processed_data = get_processed_data_or_process_image(hash, image_data)
+    if processed_data is None:
+        raise dash.exceptions.PreventUpdate
+
+    # Create figure
+    figure = create_processed_image_analysis_figure(image_data, processed_data, show_segmentation, show_classification)
+
+    return (figure, show_segmentation_update)
 
 
 # Show clicked cell callback

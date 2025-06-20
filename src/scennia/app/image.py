@@ -104,7 +104,9 @@ def crop_cell(image: ImageFile, bbox: list[int], padding=10) -> Image.Image:
 
 
 # Update image analysis figure layout
-def update_image_analysis_figure_layout(fig: go.Figure, width, height, has_cell_data=False, show_segmentation=True):
+def update_image_analysis_figure_layout(
+    fig: go.Figure, width: int, height: int, has_cell_data=False, show_segmentation=True, show_classification=True
+):
     # Update layout - we need fixed pixel coordinates, not aspect ratio preservation
     fig.update_layout(
         autosize=True,
@@ -117,7 +119,7 @@ def update_image_analysis_figure_layout(fig: go.Figure, width, height, has_cell_
         # Add helpful annotation
         annotations=[
             {
-                "text": "Click on a colored cell to view its details",
+                "text": "Click on a cell to view its details",
                 "x": 0.5,
                 "y": 0.01,
                 "xref": "paper",
@@ -127,8 +129,8 @@ def update_image_analysis_figure_layout(fig: go.Figure, width, height, has_cell_
                 "bgcolor": "rgba(255,255,255,0.7)",
                 "bordercolor": "gray",
                 "borderwidth": 1,
-                "borderpad": 4,
-                "visible": bool(has_cell_data and show_segmentation),
+                "borderpad": 2,
+                "visible": bool(has_cell_data and (show_segmentation or show_classification)),
             }
         ]
         if has_cell_data
@@ -184,7 +186,10 @@ def create_image_analysis_figure(encoded_image: EncodedImage) -> tuple[EncodedIm
 
 # Create processed image analysis figure
 def create_processed_image_analysis_figure(
-    image_data: ImageData, processed_data: ProcessedData, show_segmentation=True
+    image_data: ImageData,
+    processed_data: ProcessedData,
+    show_segmentation=True,
+    show_classification=True,
 ):
     """Create a complete figure with all elements, with annotations visible based on show_segmentation"""
 
@@ -230,8 +235,8 @@ def create_processed_image_analysis_figure(
         hover_lines.append("<br>Click for more info")
         hover_text = "<br>".join(hover_lines)
 
-        # Try to color based on relative lactate concentration
-        color = concentration_color(concentration, r_concentration)
+        # Try to color based on relative lactate concentration if classification is enabled.
+        color = concentration_color(concentration, r_concentration) if show_classification else (255, 255, 255)
 
         # Draw contours around cells with hover text and click events.
         if len(cell.contour) > 0:
@@ -259,7 +264,7 @@ def create_processed_image_analysis_figure(
             )
 
     update_image_analysis_figure_layout(
-        figure, encoded_image.width, encoded_image.height, cells is not None, show_segmentation
+        figure, encoded_image.width, encoded_image.height, cells is not None, show_segmentation, show_classification
     )
     dash.callback_context.record_timing("figure", timer() - figure_start, "Create figure")
 
