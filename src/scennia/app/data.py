@@ -470,8 +470,8 @@ class DataManager:
         return updated_processed_data
 
     # Get prepared images
-    def get_prepared_images(self) -> list[PreparedImage]:
-        if self.prepared_images is None:
+    def get_prepared_images(self, reload: bool = False) -> list[PreparedImage]:
+        if reload or self.prepared_images is None:
             self.prepared_images = []
             try:
                 self.prepared_images = self.disk_cache.load_compressed_images()

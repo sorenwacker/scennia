@@ -55,7 +55,7 @@ DATA_MANAGER = DataManager()
 # Create dash application
 app = dash.Dash(
     __name__,
-    external_stylesheets=[dbc.themes.BOOTSTRAP],
+    external_stylesheets=[dbc.themes.BOOTSTRAP, dbc.icons.BOOTSTRAP],
     background_callback_manager=DiskcacheManager(diskcache.Cache("./cache")),
     suppress_callback_exceptions=True,
     title="SCENNIA: Prototype Image Analysis Platform",
@@ -179,41 +179,14 @@ if __name__ == "__main__":
     main()
 
 
-# Add callback for model status
-@app.callback(
-    Output("model-status", "children"),
-    Input("upload-image", "id"),  # Trigger on app load by using a static component ID
-)
-def show_model_status_callback(_):
-    if MODEL_MANAGER.is_onnx_model_loaded() and MODEL_MANAGER.onnx_model_metadata is not None:
-        return dbc.Alert(
-            [
-                html.Strong("Classification Model Loaded: "),
-                f"{MODEL_MANAGER.onnx_model_metadata.get('model_name', 'Unknown')} with {MODEL_MANAGER.onnx_model_metadata.get('num_classes', 0)} classes",  # noqa: E501
-                html.Br(),
-                html.Small(f"Classes: {', '.join(MODEL_MANAGER.onnx_model_metadata.get('class_names', []))}"),
-            ],
-            color="success",
-            className="mb-2",
-        )
-    return dbc.Alert(
-        [
-            html.Strong("No Classification Model Loaded"),
-            html.Br(),
-            html.Small("Cell classification will use basic size-based predictions only"),
-        ],
-        color="warning",
-        className="mb-2",
-    )
-
-
 # Show prepared images
 @app.callback(
     Output("prepared-images", "options"),
-    Input("upload-image", "id"),  # Trigger on app load by using a static component ID
+    Input("refresh-prepared-images", "n_clicks"),
 )
-def show_prepared_images_callback(_):
-    prepared_images = DATA_MANAGER.get_prepared_images()
+def show_prepared_images_callback(n_clicks):
+    reload = n_clicks is not None and n_clicks > 0
+    prepared_images = DATA_MANAGER.get_prepared_images(reload)
     options = []
     for i, prepared_image in enumerate(prepared_images):
         image_data = DATA_MANAGER.get_image_data(prepared_image.hash)
@@ -226,6 +199,7 @@ def show_prepared_images_callback(_):
             "input_id": f"prepared-image-input-{i}",
             "value_id": f"prepared-image-value-{i}",
         })
+    set_props("prepared-image-count", {"children": f"{len(options)} Images Loaded"})
     return options
 
 
@@ -896,3 +870,31 @@ def show_clicked_cell_callback(click_data, hash):
     set_props("cell-id", {"children": f"#{cell_id}" if cell_id is not None else ""})
 
     return cell_info
+
+
+# Add callback for model status
+@app.callback(
+    Output("model-status", "children"),
+    Input("upload-image", "id"),  # Trigger on app load by using a static component ID
+)
+def show_model_status_callback(_):
+    if MODEL_MANAGER.is_onnx_model_loaded() and MODEL_MANAGER.onnx_model_metadata is not None:
+        return dbc.Alert(
+            [
+                html.Strong("Classification Model Loaded: "),
+                f"{MODEL_MANAGER.onnx_model_metadata.get('model_name', 'Unknown')} with {MODEL_MANAGER.onnx_model_metadata.get('num_classes', 0)} classes",  # noqa: E501
+                html.Br(),
+                html.Small(f"Classes: {', '.join(MODEL_MANAGER.onnx_model_metadata.get('class_names', []))}"),
+            ],
+            color="success",
+            className="mb-2",
+        )
+    return dbc.Alert(
+        [
+            html.Strong("No Classification Model Loaded"),
+            html.Br(),
+            html.Small("Cell classification will use basic size-based predictions only"),
+        ],
+        color="warning",
+        className="mb-2",
+    )

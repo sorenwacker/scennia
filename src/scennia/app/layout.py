@@ -31,7 +31,23 @@ def create_layout():
     prepared_images_card = dbc.Card(
         className="mh-100 h-100",
         children=[
-            dbc.CardHeader("Images"),
+            dbc.CardHeader(
+                children=dbc.Row(
+                    children=[
+                        dbc.Col("Images", className="col-auto"),
+                        dbc.Col(id="prepared-image-count", className="col-auto me-auto"),
+                        dbc.Col(
+                            className="col-auto",
+                            children=dbc.Button(
+                                id="refresh-prepared-images",
+                                className="btn btn-secondary btn-sm lh-1",
+                                style={"padding": ".15rem"},
+                                children=html.I(className="bi bi-arrow-clockwise"),
+                            ),
+                        ),
+                    ],
+                ),
+            ),
             dbc.CardBody(
                 className="h-100 overflow-x-scroll",
                 children=[
