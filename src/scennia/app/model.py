@@ -135,7 +135,3 @@ class ModelManager:
         # Load cellpose model
         self.cellpose_model = models.CellposeModel(gpu=True)
         return self.cellpose_model
-
-
-# Create global instance to replace global variables
-model_manager = ModelManager()

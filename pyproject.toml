@@ -29,6 +29,7 @@ dependencies = [
   "pillow~=11.2.1",
   "pydantic>=2.11.5",
   "nx-cugraph-cu12~=25.4.0",
+  "webcolors>=24.11.1",
 ]
 
 [tool.uv]

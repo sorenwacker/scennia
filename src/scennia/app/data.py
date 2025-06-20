@@ -81,6 +81,11 @@ class ImageData(BaseModel):
     # Compressed and img-src encoded image
     encoded_image: EncodedImage
 
+    def actual_lactate_concentration(self) -> int | None:
+        if self.meta_data is None:
+            return None
+        return self.meta_data.actual_lactate_concentration
+
 
 # Predicted cell data
 class CellPrediction(BaseModel):
@@ -104,6 +109,27 @@ class Cell(BaseModel):
     is_large: bool
     contour: list[list[float]]
     predicted_properties: CellPrediction | None = None
+
+    # Gets the predicted and relative lactate concentration of the cell, along with the confidence of the prediction.
+    def lactate_concentration(self, actual_concentration: int | None) -> tuple[int | None, int | None, float | None]:
+        concentration = None
+        confidence = None
+        if self.predicted_properties:
+            concentration = self.predicted_properties.concentration
+            confidence = self.predicted_properties.confidence
+        r_concentration = None
+        if concentration is not None and actual_concentration is not None:
+            r_concentration = concentration - actual_concentration
+        return (concentration, r_concentration, confidence)
+
+
+# Turns a relative lactate concentration into an English conclusion whether the cell is lactate resistance or not.
+def relative_lactate_concentration_into_resistance(r_concentration: int) -> str:
+    if r_concentration <= -40:
+        return "very likely lactate resistant"
+    if r_concentration < 0:
+        return "likely lactate resistant"
+    return "NOT lactate resistant"
 
 
 # Processed data for an image with cells
