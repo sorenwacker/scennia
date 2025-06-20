@@ -15,6 +15,7 @@ from dash.development.base_component import ComponentType
 from PIL.Image import Image
 from PIL.ImageFile import ImageFile
 from skimage.measure import find_contours, regionprops
+from webcolors import rgb_to_hex
 
 from scennia.app.data import (
     Cell,
@@ -22,26 +23,31 @@ from scennia.app.data import (
     ImageData,
     ImageMetaData,
     ProcessedData,
+    relative_lactate_concentration_into_resistance,
 )
 from scennia.app.image import (
     calculate_image_hash,
+    concentration_color,
     create_image_analysis_figure,
     create_processed_image_analysis_figure,
     crop_cell,
     decode_image,
     encode_image,
-    get_concentration_darker_color,
+    lactate_concentration_color,
 )
 from scennia.app.layout import (
     cell_info_processed_placeholder,
     create_layout,
     summary_placeholder,
 )
-from scennia.app.model import model_manager
+from scennia.app.model import ModelManager
 
 # Constants
 PIXEL_LENGTH_TO_MICROMETER = 1.0 / 3.46
 PIXEL_AREA_TO_MICROMETER = 1.0 / 12.0
+
+# ML model manager
+MODEL_MANAGER = ModelManager()
 
 # Stored/cached data manager
 DATA_MANAGER = DataManager()
@@ -129,19 +135,63 @@ app.index_string = """
 app.layout = create_layout()
 
 
+# Process arguments
+config = {"resave_processed_data": False}
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Cell Analysis App with Lactate Classification")
+    parser.add_argument("--model_path", type=str, default=None, help="Path to ONNX classification model")
+    parser.add_argument("--lazy_load", action="store_true", help="Lazily load ONNX classification model")
+    parser.add_argument("--port", type=int, default=7860, help="Port to run the app on")
+    parser.add_argument("--debug", action="store_true", help="Run in debug mode")
+    parser.add_argument(
+        "--resave_processed_data",
+        action="store_true",
+        help="Save processed data after loading it, saving default values",
+    )
+
+    args = parser.parse_args()
+
+    # Set model path if provided
+    if args.model_path:
+        MODEL_MANAGER.set_onnx_model_path(args.model_path)
+
+    # Load classification model eagerly
+    if args.model_path and not args.lazy_load:
+        success = MODEL_MANAGER.load_onnx_model_if_needed()
+        if success:
+            print(f"Successfully loaded classification model from {args.model_path}")
+        else:
+            print(f"Failed to load classification model from {args.model_path}")
+            print("App will run with basic size-based classification only")
+    else:
+        print("No classification model provided. App will run with basic size-based classification only")
+
+    # Custom config
+    config["resave_processed_data"] = args.resave_processed_data is True
+
+    # Run the app
+    app.run(debug=args.debug, port=args.port)
+
+
+if __name__ == "__main__":
+    main()
+
+
 # Add callback for model status
 @app.callback(
     Output("model-status", "children"),
     Input("upload-image", "id"),  # Trigger on app load by using a static component ID
 )
 def display_model_status(_):
-    if model_manager.is_onnx_model_loaded() and model_manager.onnx_model_metadata is not None:
+    if MODEL_MANAGER.is_onnx_model_loaded() and MODEL_MANAGER.onnx_model_metadata is not None:
         return dbc.Alert(
             [
                 html.Strong("Classification Model Loaded: "),
-                f"{model_manager.onnx_model_metadata.get('model_name', 'Unknown')} with {model_manager.onnx_model_metadata.get('num_classes', 0)} classes",  # noqa: E501
+                f"{MODEL_MANAGER.onnx_model_metadata.get('model_name', 'Unknown')} with {MODEL_MANAGER.onnx_model_metadata.get('num_classes', 0)} classes",  # noqa: E501
                 html.Br(),
-                html.Small(f"Classes: {', '.join(model_manager.onnx_model_metadata.get('class_names', []))}"),
+                html.Small(f"Classes: {', '.join(MODEL_MANAGER.onnx_model_metadata.get('class_names', []))}"),
             ],
             color="success",
             className="mb-2",
@@ -253,8 +303,8 @@ def show_prepared_image(index, show_segmentation):
         figure = create_image_analysis_figure(encoded_image)
         summary = summary_placeholder
 
-    # DEV: Save processed data in dev mode to save default values
-    if processed_data and app._dev_tools.hot_reload:
+    # With `--resave_processed_data`: resave processed data to save default values
+    if processed_data and config["resave_processed_data"]:
         DATA_MANAGER.save_processed_data(hash, processed_data)
 
     # Set header info
@@ -336,8 +386,8 @@ def show_uploaded_image(contents, file_name, show_segmentation):
         figure = create_image_analysis_figure(encoded_image)
         summary = summary_placeholder
 
-    # DEV: Save processed data in dev mode to save default values
-    if processed_data and app._dev_tools.hot_reload:
+    # With `--resave_processed_data`: resave processed data to save default values
+    if processed_data and config["resave_processed_data"]:
         DATA_MANAGER.save_processed_data(hash, processed_data)
 
     # Set header info
@@ -355,7 +405,7 @@ def process_and_save_data(hash: str, image: ImageFile) -> ProcessedData:
     print(f"Processing image with hash {hash}")
 
     # Process image
-    cellpose_model = model_manager.get_cellpose_model()
+    cellpose_model = MODEL_MANAGER.get_cellpose_model()
 
     processing_start = timer()
 
@@ -403,11 +453,11 @@ def process_and_save_data(hash: str, image: ImageFile) -> ProcessedData:
         cropped_images[cell_id] = cropped_image
 
         # Perform classification if model is available
-        if model_manager.has_onnx_model_path():
-            model_manager.load_onnx_model_if_needed()
+        if MODEL_MANAGER.has_onnx_model_path():
+            MODEL_MANAGER.load_onnx_model_if_needed()
             try:
                 # Classify the cell crop
-                cell.predicted_properties = model_manager.classify_cell_crop(cropped_image)
+                cell.predicted_properties = MODEL_MANAGER.classify_cell_crop(cropped_image)
             except Exception as e:
                 print(f"Error classifying cell {cell_id}: {e}")
 
@@ -496,14 +546,12 @@ def create_summary(processed_data: ProcessedData) -> Any:
 
             for concentration in all_concentrations:
                 count = concentration_counts.get(concentration, 0)
-                # Determine class name for this concentration
-                class_name = "control_00" if concentration == 0 else f"lactate_{concentration:02d}"
-
+                color = lactate_concentration_color(concentration)
+                color_label = px.colors.label_rgb(color)
                 plot_data.append({
-                    "Class": class_name,
                     "Concentration": f"{concentration}",  # Convert to string to use discrete values on x axis
                     "Count": count,
-                    "Color": get_concentration_darker_color(concentration),
+                    "Color": color_label,
                 })
 
             df_plot = pd.DataFrame(plot_data)
@@ -579,9 +627,6 @@ def show_clicked_cell_callback(click_data, hash):
         print("show_clicked_cell: no image data; skip")
         raise dash.exceptions.PreventUpdate
     encoded_image = image_data.encoded_image
-    actual_lactate_concentration = None
-    if image_data.meta_data is not None:
-        actual_lactate_concentration = image_data.meta_data.actual_lactate_concentration
 
     # Get processed data
     processed_data_start = timer()
@@ -657,15 +702,13 @@ def show_clicked_cell_callback(click_data, hash):
     # Get cropped image
     cropped_encoded_image = cropped_encoded_images[cell_id]
 
-    # Determine border color based on prediction or size
     show_cropped_start = timer()
-    predicted_properties = cell.predicted_properties
-    concentration = None
-    if predicted_properties is not None:
-        concentration = predicted_properties.concentration
-        border_color = get_concentration_darker_color(concentration)
-    else:
-        border_color = "green" if cell.is_large else "red"
+
+    # Get predicted and relative lactate concentration, along with the confidence of the prediction.
+    (concentration, r_concentration, confidence) = cell.lactate_concentration(image_data.actual_lactate_concentration())
+
+    # Try to color based on relative lactate concentration
+    border_color = rgb_to_hex(concentration_color(concentration, r_concentration))
 
     if cropped_encoded_image:
         # Use the cached cropped image directly
@@ -763,15 +806,19 @@ def show_clicked_cell_callback(click_data, hash):
     ]
 
     # Add classification if available
-    if predicted_properties is not None:
-        facts = [
-            html.Li(f"Lactate concentration: {predicted_properties.concentration}mM"),
-            html.Li(f"Confidence: {predicted_properties.confidence:.2f}"),
-        ]
-        if actual_lactate_concentration is not None:
+    if cell.predicted_properties is not None:
+        facts = []
+        if concentration is not None:
+            facts.append(html.Li(f"Lactate concentration: {concentration}mM"))
+        if r_concentration is not None:
+            facts.append(html.Li(f"Relative lactate concentration: {r_concentration}mM"))
+        if confidence is not None:
+            facts.append(html.Li(f"Confidence: {confidence:.2f}"))
+        if r_concentration is not None:
             facts.append(
                 html.Li(
-                    f"Conclusion: {cell.lactate_resistance_english(actual_lactate_concentration)}", className="fw-bold"
+                    f"Conclusion: {relative_lactate_concentration_into_resistance(r_concentration)}",
+                    className="fw-bold",
                 )
             )
         cell_info.append(
@@ -806,35 +853,3 @@ def show_clicked_cell_callback(click_data, hash):
     set_props("cell-id", {"children": f"#{cell_id}" if cell_id is not None else ""})
 
     return cell_info
-
-
-def main():
-    parser = argparse.ArgumentParser(description="Cell Analysis App with Lactate Classification")
-    parser.add_argument("--model_path", type=str, default=None, help="Path to ONNX classification model")
-    parser.add_argument("--lazy_load", action="store_true", help="Lazily load ONNX classification model")
-    parser.add_argument("--port", type=int, default=7860, help="Port to run the app on")
-    parser.add_argument("--debug", action="store_true", help="Run in debug mode")
-
-    args = parser.parse_args()
-
-    # Set model path if provided
-    if args.model_path:
-        model_manager.set_onnx_model_path(args.model_path)
-
-    # Load classification model eagerly
-    if args.model_path and not args.lazy_load:
-        success = model_manager.load_onnx_model_if_needed()
-        if success:
-            print(f"Successfully loaded classification model from {args.model_path}")
-        else:
-            print(f"Failed to load classification model from {args.model_path}")
-            print("App will run with basic size-based classification only")
-    else:
-        print("No classification model provided. App will run with basic size-based classification only")
-
-    # Run the app
-    app.run(debug=args.debug, port=args.port)
-
-
-if __name__ == "__main__":
-    main()

@@ -27,6 +27,7 @@ dependencies = [
   "orjson~=3.10.18",
   "pillow~=11.2.1",
   "pydantic>=2.11.5",
+  "webcolors>=24.11.1",
 ]
 
 [tool.uv]

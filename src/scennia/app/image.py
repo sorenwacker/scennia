@@ -5,30 +5,28 @@ from timeit import default_timer as timer
 
 import dash
 import numpy as np
+import plotly.express as px
 import plotly.graph_objects as go
 from PIL import Image
 from PIL.ImageFile import ImageFile
-from plotly.colors import hex_to_rgb
 
-from scennia.app.data import EncodedImage, ImageData, ProcessedData
+from scennia.app.data import (
+    EncodedImage,
+    ImageData,
+    ProcessedData,
+    relative_lactate_concentration_into_resistance,
+)
 
-
-def get_concentration_color(concentration):
-    """Get color for concentration level using ordinal scale"""
-    # Ordinal color scale from light blue (0) to dark red (80)
-    color_map = {
-        0: "#e6f3ff",  # Very light blue (control)
-        5: "#b3d9ff",  # Light blue
-        10: "#80bfff",  # Medium blue
-        20: "#4da6ff",  # Blue
-        40: "#ff8000",  # Orange
-        80: "#ff0000",  # Red
-    }
-    return color_map.get(concentration, "#808080")  # Gray for unknown
+# Simple color scale from blue - white - red.
+BLUE_WHITE_RED_COLOR_SCALE = [
+    "rgb(64,64,255)",
+    "rgb(245,245,245)",
+    "rgb(255,64,64)",
+]
 
 
-def get_concentration_darker_color(concentration):
-    """Get color for concentration, darker for white background"""
+# Get the color of the cell based on its lactate concentration
+def lactate_concentration_color(concentration: int) -> tuple[int, int, int]:
     color_map = {
         0: "#c0c6ca",
         5: "#9bb9d7",
@@ -37,7 +35,33 @@ def get_concentration_darker_color(concentration):
         40: "#ff8000",
         80: "#ff0000",
     }
-    return color_map.get(concentration, "#808080")
+    color_hex = color_map.get(concentration, "#808080")
+    (r, g, b) = px.colors.hex_to_rgb(color_hex)
+    return (r, g, b)
+
+
+# Get the color of the cell based on its relative lactate concentration
+def relative_lactate_concentration_color(r_concentration: int) -> tuple[int, int, int]:
+    # Plotly color scales need the value to be in range 0-1, so we need to scale the relative concentration first.
+    # Scale from -50-50 to 0-1. Note that the actual range is from -80 to 80, but scaling to -50-50 exagerates
+    # the colors a bit.
+    scaled = (50.0 + float(r_concentration)) / 100.0
+    # Clamp the scaled value to 0-1
+    scaled = max(0.0, scaled)  # Clamp negative range
+    scaled = min(1.0, scaled)  # Clamp positive range
+    # Interpolate a color from the color scale based on the scaled value
+    color_label = px.colors.sample_colorscale(BLUE_WHITE_RED_COLOR_SCALE, scaled)[0]
+    (r, g, b) = px.colors.unlabel_rgb(color_label)  # For some reason this turns the ints into floats...
+    return (int(r), int(g), int(b))  # So turn them back into ints here
+
+
+# Try to color based on relative lactate concentration
+def concentration_color(concentration: int | None, r_concentration: int | None) -> tuple[int, int, int]:
+    if r_concentration is not None:
+        return relative_lactate_concentration_color(r_concentration)
+    if concentration is not None:
+        return lactate_concentration_color(concentration)
+    return (127, 127, 127)  # Fallback: grey
 
 
 # Decode image from base64
@@ -164,10 +188,6 @@ def create_processed_image_analysis_figure(
 ):
     """Create a complete figure with all elements, with annotations visible based on show_segmentation"""
 
-    actual_lactate_concentration = None
-    if image_data.meta_data is not None:
-        actual_lactate_concentration = image_data.meta_data.actual_lactate_concentration
-
     # Create the base figure with the original image
     figure_start = timer()
     figure = go.Figure()
@@ -190,24 +210,32 @@ def create_processed_image_analysis_figure(
     # Add cell overlays if data exists
     cells = processed_data.cells
     for id, cell in cells.items():
+        # Get predicted and relative lactate concentration, along with the confidence of the prediction.
+        (concentration, r_concentration, confidence) = cell.lactate_concentration(
+            image_data.actual_lactate_concentration()
+        )
+
         # Create hover text with predicted properties
         hover_lines = [f"<b>Cell {id}</b>"]
-        predicted_props = cell.predicted_properties
-        if predicted_props is not None:
-            # Color cells based on concentration level (ordinal)
-            color = get_concentration_color(predicted_props.concentration)
-            hover_lines.append(f"Lactate concentration: {predicted_props.concentration}mM")
-            hover_lines.append(f"Confidence: {predicted_props.confidence:.2f}")
-            if actual_lactate_concentration is not None:
-                hover_lines.append(
-                    f"<b>Conclusion: {cell.lactate_resistance_english(actual_lactate_concentration)}</b>"
-                )
-        hover_lines.append("<br><u>Click for more info</u>")
+        if cell.predicted_properties:
+            if concentration is not None:
+                hover_lines.append(f"Lactate concentration: {concentration}mM")
+            if r_concentration is not None:
+                hover_lines.append(f"Relative lactate concentration: {r_concentration}mM")
+            if confidence is not None:
+                hover_lines.append(f"Confidence: {confidence:.2f}")
+            if r_concentration is not None:
+                conclusion = relative_lactate_concentration_into_resistance(r_concentration)
+                hover_lines.append(f"<b>Conclusion:<br>  {conclusion}</b>")
+        hover_lines.append("<br>Click for more info")
         hover_text = "<br>".join(hover_lines)
+
+        # Try to color based on relative lactate concentration
+        color = concentration_color(concentration, r_concentration)
 
         # Draw contours around cells with hover text and click events.
         if len(cell.contour) > 0:
-            (r, g, b) = hex_to_rgb(color)
+            (r, g, b) = color
             y, x = cell.contour
             figure.add_trace(
                 go.Scatter(
@@ -216,7 +244,7 @@ def create_processed_image_analysis_figure(
                     mode="lines",
                     fill="toself",
                     fillcolor=f"rgba({r},{g},{b},0.1)",
-                    line={"color": color},
+                    line={"color": px.colors.label_rgb(color)},
                     hoveron="fills",
                     hoverinfo="text",
                     hoverlabel={"bgcolor": f"rgba({r},{g},{b},0.5)"},
