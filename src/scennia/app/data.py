@@ -156,11 +156,15 @@ class PreparedImage:
 
 # Simple file-based cache system
 class DiskCache:
-    def __init__(self):
-        self.cache_dir = "cache"
+    def __init__(self, cache_path="cache"):
+        self.cache_path = cache_path
+
+    def set_cache_path(self, cache_path):
+        print(f"Cache path set to: {cache_path}")
+        self.cache_path = cache_path
 
     def __cache_path(self, *directories: str) -> str:
-        path = self.cache_dir
+        path = self.cache_path
         for directory in directories:
             path = join(path, directory)
         return path
@@ -287,8 +291,8 @@ class DiskCache:
     # Load compressed image from disk cache
     def load_compressed_images(self) -> list[PreparedImage]:
         images = []
-        for p in os.listdir(self.cache_dir):
-            path = join(self.cache_dir, p, "compressed.webp")
+        for p in os.listdir(self.cache_path):
+            path = join(self.cache_path, p, "compressed.webp")
             try:
                 if isfile(path):
                     image = Image.open(path)
@@ -311,6 +315,9 @@ class DataManager:
     processed_data: dict[str, ProcessedData] = field(default_factory=dict)
 
     prepared_images: list[PreparedImage] | None = None
+
+    def set_cache_path(self, cache_path):
+        self.disk_cache.set_cache_path(cache_path)
 
     def __try_load_uncompressed_image(self, hash: str, extension: str):
         if hash not in self.uncompressed_images:
@@ -470,8 +477,8 @@ class DataManager:
         return updated_processed_data
 
     # Get prepared images
-    def get_prepared_images(self) -> list[PreparedImage]:
-        if self.prepared_images is None:
+    def get_prepared_images(self, reload: bool = False) -> list[PreparedImage]:
+        if reload or self.prepared_images is None:
             self.prepared_images = []
             try:
                 self.prepared_images = self.disk_cache.load_compressed_images()

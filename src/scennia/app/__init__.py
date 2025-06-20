@@ -55,7 +55,7 @@ DATA_MANAGER = DataManager()
 # Create dash application
 app = dash.Dash(
     __name__,
-    external_stylesheets=[dbc.themes.BOOTSTRAP],
+    external_stylesheets=[dbc.themes.BOOTSTRAP, dbc.icons.BOOTSTRAP],
     background_callback_manager=DiskcacheManager(diskcache.Cache("./cache")),
     suppress_callback_exceptions=True,
     title="SCENNIA: Prototype Image Analysis Platform",
@@ -141,6 +141,7 @@ config = {"resave_processed_data": False}
 
 def main():
     parser = argparse.ArgumentParser(description="Cell Analysis App with Lactate Classification")
+    parser.add_argument("--cache_path", type=str, default="cache", help="Path to load and save cached data from")
     parser.add_argument("--model_path", type=str, default=None, help="Path to ONNX classification model")
     parser.add_argument("--lazy_load", action="store_true", help="Lazily load ONNX classification model")
     parser.add_argument("--port", type=int, default=7860, help="Port to run the app on")
@@ -152,6 +153,10 @@ def main():
     )
 
     args = parser.parse_args()
+
+    # Set cache path
+    if args.cache_path:
+        DATA_MANAGER.set_cache_path(args.cache_path)
 
     # Set model path if provided
     if args.model_path:
@@ -165,7 +170,7 @@ def main():
         else:
             print(f"Failed to load classification model from {args.model_path}")
             print("App will run with basic size-based classification only")
-    else:
+    elif not args.lazy_load:
         print("No classification model provided. App will run with basic size-based classification only")
 
     # Custom config
@@ -179,41 +184,14 @@ if __name__ == "__main__":
     main()
 
 
-# Add callback for model status
-@app.callback(
-    Output("model-status", "children"),
-    Input("upload-image", "id"),  # Trigger on app load by using a static component ID
-)
-def display_model_status(_):
-    if MODEL_MANAGER.is_onnx_model_loaded() and MODEL_MANAGER.onnx_model_metadata is not None:
-        return dbc.Alert(
-            [
-                html.Strong("Classification Model Loaded: "),
-                f"{MODEL_MANAGER.onnx_model_metadata.get('model_name', 'Unknown')} with {MODEL_MANAGER.onnx_model_metadata.get('num_classes', 0)} classes",  # noqa: E501
-                html.Br(),
-                html.Small(f"Classes: {', '.join(MODEL_MANAGER.onnx_model_metadata.get('class_names', []))}"),
-            ],
-            color="success",
-            className="mb-2",
-        )
-    return dbc.Alert(
-        [
-            html.Strong("No Classification Model Loaded"),
-            html.Br(),
-            html.Small("Cell classification will use basic size-based predictions only"),
-        ],
-        color="warning",
-        className="mb-2",
-    )
-
-
 # Show prepared images
 @app.callback(
     Output("prepared-images", "options"),
-    Input("upload-image", "id"),  # Trigger on app load by using a static component ID
+    Input("refresh-prepared-images", "n_clicks"),
 )
-def show_prepared_images(_):
-    prepared_images = DATA_MANAGER.get_prepared_images()
+def show_prepared_images_callback(n_clicks):
+    reload = n_clicks is not None and n_clicks > 0
+    prepared_images = DATA_MANAGER.get_prepared_images(reload)
     options = []
     for i, prepared_image in enumerate(prepared_images):
         image_data = DATA_MANAGER.get_image_data(prepared_image.hash)
@@ -226,6 +204,7 @@ def show_prepared_images(_):
             "input_id": f"prepared-image-input-{i}",
             "value_id": f"prepared-image-value-{i}",
         })
+    set_props("prepared-image-count", {"children": f"{len(options)} Images Loaded"})
     return options
 
 
@@ -260,6 +239,15 @@ def set_header_info(image_data: ImageData, processed_data: ProcessedData | None)
     set_props("cell-info", {"children": cell_info_processed_placeholder})
 
 
+# Disable prepared images, upload, and switches while running.
+RUNNING_DISABLE = [
+    (Output("prepared-images", "disabled"), True, False),
+    (Output("upload-image", "disabled"), True, False),
+    (Output("show-classification", "disabled"), True, False),
+    (Output("show-segmentation", "disabled"), True, False),
+]
+
+
 # Show prepared image callback
 @app.callback(
     [
@@ -270,13 +258,10 @@ def set_header_info(image_data: ImageData, processed_data: ProcessedData | None)
     Input("prepared-images", "value"),
     State("show-segmentation", "value"),
     background=False,
-    running=[  # Disable prepared images, upload, and process while running.
-        (Output("prepared-images", "disabled"), True, False),
-        (Output("upload-image", "disabled"), True, False),
-    ],
+    running=RUNNING_DISABLE,
     prevent_initial_call=True,
 )
-def show_prepared_image(index, show_segmentation):
+def show_prepared_image_callback(index, show_segmentation):
     if index is None:
         raise dash.exceptions.PreventUpdate
 
@@ -330,13 +315,10 @@ def show_prepared_image(index, show_segmentation):
         State("show-segmentation", "value"),
     ],
     background=False,
-    running=[  # Disable prepared images, upload, and process while running.
-        (Output("prepared-images", "disabled"), True, False),
-        (Output("upload-image", "disabled"), True, False),
-    ],
+    running=RUNNING_DISABLE,
     prevent_initial_call=True,
 )
-def show_uploaded_image(contents, file_name, show_segmentation):
+def show_uploaded_image_callback(contents, file_name, show_segmentation):
     if contents is None or file_name is None:
         raise dash.exceptions.PreventUpdate
 
@@ -606,6 +588,46 @@ def create_summary(processed_data: ProcessedData) -> Any:
     return summary_content
 
 
+# Classification switch toggled callback callback
+@app.callback(
+    [
+        Output("image-analysis", "figure", allow_duplicate=True),
+        Output("show-segmentation", "value", allow_duplicate=True),
+    ],
+    Input("show-classification", "value"),
+    [
+        State("image-hash-store", "data"),
+        State("show-segmentation", "value"),
+    ],
+    prevent_initial_call=True,
+)
+def classification_switch_toggled_callback(show_classification, hash, show_segmentation):
+    show_segmentation_update = dash.no_update
+    if not show_segmentation and show_classification:
+        # Auto-enable show segmentation when show classification is enabled
+        show_segmentation_update = True
+        show_segmentation = True
+
+    if hash is None:
+        # If there is no figure yet, just update the segmentation switch
+        return (dash.no_update, show_segmentation_update)
+
+    # Get image data
+    image_data = DATA_MANAGER.get_image_data(hash)
+    if image_data is None:
+        raise dash.exceptions.PreventUpdate
+
+    # Get processed data
+    processed_data = get_processed_data_or_process_image(hash, image_data)
+    if processed_data is None:
+        raise dash.exceptions.PreventUpdate
+
+    # Create figure
+    figure = create_processed_image_analysis_figure(image_data, processed_data, show_segmentation, show_classification)
+
+    return (figure, show_segmentation_update)
+
+
 # Show clicked cell callback
 @app.callback(
     Output("cell-info", "children", allow_duplicate=True),
@@ -853,3 +875,31 @@ def show_clicked_cell_callback(click_data, hash):
     set_props("cell-id", {"children": f"#{cell_id}" if cell_id is not None else ""})
 
     return cell_info
+
+
+# Add callback for model status
+@app.callback(
+    Output("model-status", "children"),
+    Input("upload-image", "id"),  # Trigger on app load by using a static component ID
+)
+def show_model_status_callback(_):
+    if MODEL_MANAGER.is_onnx_model_loaded() and MODEL_MANAGER.onnx_model_metadata is not None:
+        return dbc.Alert(
+            [
+                html.Strong("Classification Model Loaded: "),
+                f"{MODEL_MANAGER.onnx_model_metadata.get('model_name', 'Unknown')} with {MODEL_MANAGER.onnx_model_metadata.get('num_classes', 0)} classes",  # noqa: E501
+                html.Br(),
+                html.Small(f"Classes: {', '.join(MODEL_MANAGER.onnx_model_metadata.get('class_names', []))}"),
+            ],
+            color="success",
+            className="mb-2",
+        )
+    return dbc.Alert(
+        [
+            html.Strong("No Classification Model Loaded"),
+            html.Br(),
+            html.Small("Cell classification will use basic size-based predictions only"),
+        ],
+        color="warning",
+        className="mb-2",
+    )
