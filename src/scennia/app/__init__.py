@@ -141,6 +141,7 @@ config = {"resave_processed_data": False}
 
 def main():
     parser = argparse.ArgumentParser(description="Cell Analysis App with Lactate Classification")
+    parser.add_argument("--cache_path", type=str, default="cache", help="Path to load and save cached data from")
     parser.add_argument("--model_path", type=str, default=None, help="Path to ONNX classification model")
     parser.add_argument("--lazy_load", action="store_true", help="Lazily load ONNX classification model")
     parser.add_argument("--port", type=int, default=7860, help="Port to run the app on")
@@ -152,6 +153,10 @@ def main():
     )
 
     args = parser.parse_args()
+
+    # Set cache path
+    if args.cache_path:
+        DATA_MANAGER.set_cache_path(args.cache_path)
 
     # Set model path if provided
     if args.model_path:
@@ -165,7 +170,7 @@ def main():
         else:
             print(f"Failed to load classification model from {args.model_path}")
             print("App will run with basic size-based classification only")
-    else:
+    elif not args.lazy_load:
         print("No classification model provided. App will run with basic size-based classification only")
 
     # Custom config
