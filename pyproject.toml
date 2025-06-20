@@ -11,22 +11,24 @@ dependencies = [
   "cellpose~=4.0.3",
   "dash[diskcache]~=3.0.4",
   "dash-bootstrap-components~=2.0.3",
-  "gradio~=5.29.1",
   "ipykernel~=6.29.5",
   "ipywidgets~=8.1.7",
   "lightning~=2.5.1.post0",
   "matplotlib~=3.10.3",
-  "nx-cugraph-cu12~=25.4.0",
   "onnx~=1.18.0",
   "onnxruntime~=1.19.0",
   "scikit-image~=0.25.2",
   "scikit-learn~=1.6.1",
   "seaborn~=0.13.2",
-  "tensorboard~=2.19.0",
+  "torch~=2.5.1",
+  "torchvision~=0.20.1",
+  "torchaudio~=2.5.1",
+  "torchmetrics~=1.0.3",
   "wandb~=0.19.11",
   "orjson~=3.10.18",
   "pillow~=11.2.1",
   "pydantic>=2.11.5",
+  "nx-cugraph-cu12~=25.4.0",
   "webcolors>=24.11.1",
 ]
 
@@ -43,10 +45,19 @@ dev-dependencies = [
 
 [tool.uv.sources]
 nx-cugraph-cu12 = { index = "nvidia" }
+torch = { index = "torch-gpu" }
+torchvision = { index = "torch-gpu" }
+torchaudio = { index = "torch-gpu" }
+torchmetrics = { index = "torch-gpu" }
 
 [[tool.uv.index]]
 name = "nvidia"
 url = "https://pypi.nvidia.com"
+explicit = true
+
+[[tool.uv.index]]
+name = "torch-gpu"
+url = "https://download.pytorch.org/whl/cu121"
 explicit = true
 
 [build-system]
@@ -79,9 +90,12 @@ testpaths = [
   "tests",
 ]
 
-[tool.coverage]
-run.source = ["scennia"]
-port.exclude_lines = [
+[tool.coverage.run]
+source = ["scennia"]
+disable_warnings = ["no-data-collected"]
+
+[tool.coverage.report]
+exclude_lines = [
   'pragma: no cover',
   '\.\.\.',
   'if typing.TYPE_CHECKING:',
@@ -95,7 +109,6 @@ line-length = 120  # how long you want lines to be
 [tool.ruff.format]
 docstring-code-format = true  # code snippets in docstrings will be formatted
 preview = true
-
 
 [tool.ruff.lint]
 # For more strict linting and code simplifications, replace this with
