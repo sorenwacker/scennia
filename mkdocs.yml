@@ -18,6 +18,7 @@ plugins:
             show_submodules: true
 
 markdown_extensions:
+  - attr_list
   - pymdownx.extra:
       pymdownx.superfences:
         custom_fences:

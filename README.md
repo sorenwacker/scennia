@@ -1,6 +1,10 @@
 # SCENNIA: Prototype Image Analysis Platform
 A prototype web application that brings AI-powered image analysis to cultivated meat cell line development. Part of the SCENNIA project funded by the Bezos Earth Fund, this platform combines advanced cell classification models in a user friendly interface.
 
+![SCENNIA web application](docs/scennia_app.png)
+
+An online version of the web app is available at: <https://scennia.ewi.tudelft.nl/>
+
 ## Repository
 ```
 git@gitlab.ewi.tudelft.nl:reit/scennia.git
