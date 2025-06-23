@@ -129,6 +129,7 @@ scennia_app \
 #### Parameters
 | Parameter | Description | Default |
 |-----------|-------------|---------|
+| `--cache_path` | Path to load and save cached data from | cache |
 | `--model_path` | Path to ONNX classification model | - |
 | `--lazy_load` | Lazily load ONNX classification model | False |
 | `--port` | Port to run the app on | 7860 |
