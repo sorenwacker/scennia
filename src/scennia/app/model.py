@@ -3,6 +3,8 @@ import os
 
 import numpy as np
 import onnxruntime as ort
+import torch
+import torch.nn.functional as F
 from PIL.Image import Image
 from torchvision import transforms
 
@@ -83,7 +85,9 @@ class ModelManager:
         # Run inference
         inputs = {self.onnx_classification_model.get_inputs()[0].name: input_tensor}
         outputs = self.onnx_classification_model.run(None, inputs)
-        predictions = outputs[0][0]  # Get first batch item
+
+        # Convert outputs to probabilities
+        predictions = F.softmax(torch.tensor(outputs[0][0]), dim=0).numpy()
 
         # Get predicted class and confidence
         predicted_class_idx = np.argmax(predictions)
