@@ -19,7 +19,7 @@ summary_placeholder = html.P(
 
 
 # App layout
-def create_layout():
+def create_layout(show_image_upload=True):
     title = [
         html.H1("SCENNIA: Prototype Image Analysis Platform", className="my-2 text-center"),
         html.P(
@@ -164,34 +164,11 @@ def create_layout():
                                 "height": "100%",
                                 # Set minimum width and height to prevent page from jumping around.
                                 "min-width": "800px",
-                                "min-height": "600px",
+                                "min-height": "650px",
                             },
                             responsive=False,  # Disabled: shrinks the image.
                         ),
                     ],
-                ),
-            ),
-        ],
-    )
-    summary_card = dbc.Card(
-        children=[
-            dbc.CardHeader(
-                children=dbc.Row(
-                    children=[
-                        dbc.Col(className="col-auto", children="Summary"),
-                        dbc.Col(id="detected-cell-count", className="col-auto"),
-                        dbc.Col(id="median-cell-area", className="col-auto"),
-                        dbc.Col(id="mean-cell-area", className="col-auto me-auto"),
-                    ],
-                ),
-            ),
-            dbc.CardBody(
-                dcc.Loading(
-                    id="loading-summary",
-                    type="circle",
-                    show_initially=False,
-                    className="mh-100",  # Align spinner by setting height to 100% even with no content
-                    children=[html.Div(id="summary", children=summary_placeholder)],
                 ),
             ),
         ],
@@ -224,8 +201,45 @@ def create_layout():
             ]),
         ],
     )
-    model_status = html.Div(id="model-status")
-    alerts = html.Div(id="status-alert")
+    summary_card = dbc.Card(
+        children=[
+            dbc.CardHeader(
+                children=dbc.Row(
+                    children=[
+                        dbc.Col(className="col-auto", children="Summary"),
+                        dbc.Col(id="detected-cell-count", className="col-auto"),
+                        dbc.Col(id="median-cell-area", className="col-auto"),
+                        dbc.Col(id="mean-cell-area", className="col-auto me-auto"),
+                    ],
+                ),
+            ),
+            dbc.CardBody(
+                dcc.Loading(
+                    id="loading-summary",
+                    type="circle",
+                    show_initially=False,
+                    className="mh-100",  # Align spinner by setting height to 100% even with no content
+                    children=[html.Div(id="summary", children=summary_placeholder)],
+                ),
+                style={
+                    # Set minimum height to prevent page from jumping around.
+                    "min-height": "100px",
+                },
+            ),
+        ],
+    )
+
+    # Create main columns
+    main_cols = [
+        dbc.Col(width=8 if show_image_upload else 12, children=[prepared_images_card]),
+    ]
+    if show_image_upload:
+        main_cols.append(dbc.Col(width=4, children=[image_upload_card]))
+    main_cols.extend([
+        dbc.Col(width=8, children=[image_analysis_card]),
+        dbc.Col(width=4, children=[cell_info_card]),
+        dbc.Col(width=12, children=[summary_card]),
+    ])
 
     return dbc.Container(
         fluid=True,
@@ -239,30 +253,14 @@ def create_layout():
             # Row: Main content
             dbc.Row(
                 className="row-cols-2 g-2 mb-2",
-                children=[
-                    dbc.Col(width=8, children=[prepared_images_card]),
-                    dbc.Col(width=4, children=[image_upload_card]),
-                    dbc.Col(
-                        width=8,
-                        children=[
-                            dbc.Row(
-                                class_name="row-cols-1 g-2",
-                                children=[
-                                    dbc.Col(width=12, children=[image_analysis_card]),
-                                    dbc.Col(width=12, children=[summary_card]),
-                                ],
-                            )
-                        ],
-                    ),
-                    dbc.Col(width=4, children=[cell_info_card]),
-                ],
+                children=main_cols,
             ),
             # Row: Footer
             dbc.Row(
                 className="row-cols-1 g-2",
                 children=[
-                    dbc.Col(width=12, children=[model_status]),
-                    dbc.Col(width=12, children=alerts),
+                    dbc.Col(id="model-status", width=12),
+                    dbc.Col(id="status-alert", width=12),
                 ],
             ),
             # Hidden data stores

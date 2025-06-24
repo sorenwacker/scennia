@@ -14,6 +14,7 @@ from scennia.app.data import (
     EncodedImage,
     ImageData,
     ProcessedData,
+    confidence_into_english,
     relative_lactate_concentration_into_resistance,
 )
 
@@ -53,6 +54,15 @@ def relative_lactate_concentration_color(r_concentration: int) -> tuple[int, int
     color_label = px.colors.sample_colorscale(BLUE_WHITE_RED_COLOR_SCALE, scaled)[0]
     (r, g, b) = px.colors.unlabel_rgb(color_label)  # For some reason this turns the ints into floats...
     return (int(r), int(g), int(b))  # So turn them back into ints here
+
+
+# Get the color of the cell based on its lactate resistance.
+def lactate_resistance_color(lactate_resistance: str) -> tuple[int, int, int]:
+    if lactate_resistance == "very likely lactate resistant":
+        return (64, 64, 240)
+    if lactate_resistance == "likely lactate resistant":
+        return (170, 170, 240)
+    return (240, 64, 64)
 
 
 # Try to color based on relative lactate concentration
@@ -110,7 +120,7 @@ def update_image_analysis_figure_layout(
     # Update layout - we need fixed pixel coordinates, not aspect ratio preservation
     fig.update_layout(
         autosize=True,
-        height=600,
+        height=650,
         margin={"l": 0, "r": 0, "t": 0, "b": 0},
         showlegend=False,
         plot_bgcolor="rgba(0,0,0,0)",
@@ -228,7 +238,7 @@ def create_processed_image_analysis_figure(
             if r_concentration is not None:
                 hover_lines.append(f"Relative lactate concentration: {r_concentration}mM")
             if confidence is not None:
-                hover_lines.append(f"Confidence: {confidence:.2f}")
+                hover_lines.append(f"Confidence: {confidence_into_english(confidence)}")
             if r_concentration is not None:
                 conclusion = relative_lactate_concentration_into_resistance(r_concentration)
                 hover_lines.append(f"<b>Conclusion:<br>  {conclusion}</b>")

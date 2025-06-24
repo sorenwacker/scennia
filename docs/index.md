@@ -136,6 +136,7 @@ scennia_app \
 | `--cache_path` | Path to load and save cached data from | cache |
 | `--model_path` | Path to ONNX classification model | - |
 | `--lazy_load` | Lazily load ONNX classification model | False |
+| `--hide_image_upload` | Hide the image uploader | False |
 | `--port` | Port to run the app on | 7860 |
 | `--debug` | Run in debug mode | False |
 
