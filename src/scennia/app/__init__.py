@@ -44,10 +44,6 @@ from scennia.app.layout import (
 )
 from scennia.app.model import ModelManager
 
-# Constants
-PIXEL_LENGTH_TO_MICROMETER = 1.0 / 3.46
-PIXEL_AREA_TO_MICROMETER = 1.0 / 12.0
-
 # ML model manager
 MODEL_MANAGER = ModelManager()
 
@@ -225,8 +221,8 @@ def set_header_info(image_data: ImageData, processed_data: ProcessedData | None)
     # Process image
     if processed_data is not None:
         cell_count = f"Detected {len(processed_data.cells)} cells"
-        median_cell_area = f"Median cell area: {processed_data.median_area * PIXEL_AREA_TO_MICROMETER:.2f}μm"
-        mean_cell_area = f"Mean cell area: {processed_data.mean_area * PIXEL_AREA_TO_MICROMETER:.2f}μm"
+        median_cell_area = f"Median cell area: {processed_data.median_area_um:.2f}μm²"
+        mean_cell_area = f"Mean cell area: {processed_data.mean_area_um:.2f}μm²"
     else:
         cell_count = ""
         median_cell_area = ""
@@ -509,6 +505,8 @@ def get_processed_data_or_process_image(hash: str, image_data: ImageData) -> Pro
 def create_summary(image_data: ImageData, processed_data: ProcessedData) -> Any:
     summary_start = timer()
 
+    content: list[ComponentType] = []
+
     # Gather concentration data
     actual_lactate_concentration = image_data.actual_lactate_concentration()
     concentration_counts = {}
@@ -524,11 +522,14 @@ def create_summary(image_data: ImageData, processed_data: ProcessedData) -> Any:
             lactate_resistance = relative_lactate_concentration_into_resistance(lactate_resistance)
             lactate_resistance_counts[lactate_resistance] = lactate_resistance_counts.get(lactate_resistance, 0) + 1
 
-    content: list[ComponentType] = []
-    if classification_available:
-        graphs = []
+    # Default graph config and styles
+    graph_config: dcc.Graph.Config = {"displayModeBar": False}
+    graph_style = {"height": "300px", "margin": "0"}
+    graphs = []
 
-        # Create concentration distribution plot
+    # Add lactate concentration graphs
+    if classification_available:
+        # Create cell concentration bar plot
         if concentration_counts:
             all_concentrations = [0, 5, 10, 20, 40, 80]  # Ensure all concentration levels are represented
             plot_data = []
@@ -541,11 +542,11 @@ def create_summary(image_data: ImageData, processed_data: ProcessedData) -> Any:
                     "Count": count,
                     "Color": color_label,
                 })
-            df_plot = pd.DataFrame(plot_data)
+            df = pd.DataFrame(plot_data)
 
             # Create bar plot
             fig = px.bar(
-                df_plot,
+                df,
                 x="Concentration",
                 y="Count",
                 title="Cells by Lactate Concentration",
@@ -553,7 +554,7 @@ def create_summary(image_data: ImageData, processed_data: ProcessedData) -> Any:
                 text="Count",
                 text_auto=True,
                 color="Color",
-                color_discrete_map={row["Color"]: row["Color"] for _, row in df_plot.iterrows()},
+                color_discrete_map={row["Color"]: row["Color"] for _, row in df.iterrows()},
             )
             # Update layout
             fig.update_layout(
@@ -568,7 +569,7 @@ def create_summary(image_data: ImageData, processed_data: ProcessedData) -> Any:
             # Show more info on hover.
             fig.update_traces(hovertemplate="<b>%{x}mM</b><br>Count: %{y}<extra></extra>")
             # Add graph
-            graph = dcc.Graph(figure=fig, config={"displayModeBar": False}, style={"height": "320px", "margin": "0"})
+            graph = dcc.Graph(figure=fig, config=graph_config, style=graph_style)
             graphs.append(dbc.Col(graph, width=8))
         # Create lactate resistance pie chart
         if lactate_resistance_counts:
@@ -581,17 +582,17 @@ def create_summary(image_data: ImageData, processed_data: ProcessedData) -> Any:
                     "Count": count,
                     "Color": color_label,
                 })
-            df_plot = pd.DataFrame(plot_data)
+            df = pd.DataFrame(plot_data)
 
-            # Create pie chart
+            # Create lactate resistance pie chart
             fig = px.pie(
-                df_plot,
+                df,
                 names="Lactate Resistance",
                 values="Count",
                 title="Cells by Lactate Resistance",
                 labels={"Lactate Resistance": "Lactate Resistance", "Count": "Number of Cells"},
                 color="Color",
-                color_discrete_map={row["Color"]: row["Color"] for _, row in df_plot.iterrows()},
+                color_discrete_map={row["Color"]: row["Color"] for _, row in df.iterrows()},
             )
             # Update layout
             fig.update_layout(
@@ -609,11 +610,8 @@ def create_summary(image_data: ImageData, processed_data: ProcessedData) -> Any:
                 hovertemplate="<b>%{label}</b><br>Count: %{value} (%{percent})<extra></extra>",
             )
             # Add graph
-            graph = dcc.Graph(figure=fig, config={"displayModeBar": False}, style={"height": "300px", "margin": "0"})
+            graph = dcc.Graph(figure=fig, config=graph_config, style=graph_style)
             graphs.append(dbc.Col(graph, width=4))
-
-        # Add graphs to summary
-        content.append(dbc.Row(graphs))
     else:
         large_cells = sum(cell.is_large for cell in processed_data.cells.values())
         small_cells = len(processed_data.cells) - large_cells
@@ -625,6 +623,39 @@ def create_summary(image_data: ImageData, processed_data: ProcessedData) -> Any:
                 html.Span(f"{small_cells} small", style={"color": "red", "fontWeight": "bold"}),
             ])
         )
+
+    # Create cell area violin plot
+    df = pd.DataFrame([{"Area": c.area_um} for c in processed_data.cells.values()])
+    fig = px.violin(
+        df,
+        x="Area",
+        orientation="h",
+        box=True,
+        points="all",
+        title="Cell Area Distribution",
+        labels={"Area": "Cell Area [μm²]"},
+    )
+    # Update layout
+    fig.update_layout(
+        height=300,
+        margin={"l": 0, "r": 0, "t": 30, "b": 0},
+        font={"size": 12},
+        showlegend=False,  # Hide color legend since colors are self-explanatory
+    )
+    # Disable zoom
+    fig.update_xaxes(fixedrange=True)
+    fig.update_yaxes(fixedrange=True)
+    # Show counts and show more info on hover.
+    fig.update_traces(
+        hovertemplate="Cell area: %{x}μm²<extra></extra>",
+    )
+    # Add graph
+    graph = dcc.Graph(figure=fig, config=graph_config, style=graph_style)
+    graphs.append(dbc.Col(graph, width=12))
+
+    # Add graphs to summary
+    content.append(dbc.Row(graphs, className="g-2"))
+
     dash.callback_context.record_timing("summary", timer() - summary_start, "Create summary")
 
     return content
@@ -901,8 +932,8 @@ def show_clicked_cell_callback(click_data, hash):
         html.Ul(
             className="my-0",
             children=[
-                html.Li(f"Area: {cell.area * PIXEL_AREA_TO_MICROMETER:.2f}μm"),
-                html.Li(f"Perimeter: {cell.perimeter * PIXEL_LENGTH_TO_MICROMETER:.2f}μm"),
+                html.Li(f"Area: {cell.area_um:.2f}μm²"),
+                html.Li(f"Perimeter: {cell.perimeter_um:.2f}μm"),
                 html.Li(f"Eccentricity: {cell.eccentricity:.3f}"),
                 html.Li(f"Centroid: ({cell.centroid_x:.1f}, {cell.centroid_y:.1f})"),
             ],
