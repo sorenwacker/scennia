@@ -1,6 +1,10 @@
 # SCENNIA: Prototype Image Analysis Platform
 A prototype web application that brings AI-powered image analysis to cultivated meat cell line development. Part of the SCENNIA project funded by the Bezos Earth Fund, this platform combines advanced cell classification models in a user friendly interface.
 
+![SCENNIA web application](docs/scennia_app.png)
+
+An online version of the web app is available at: <https://scennia.ewi.tudelft.nl/>
+
 ## Repository
 ```
 git@gitlab.ewi.tudelft.nl:reit/scennia.git
@@ -128,8 +132,10 @@ scennia_app \
 #### Parameters
 | Parameter | Description | Default |
 |-----------|-------------|---------|
+| `--cache_path` | Path to load and save cached data from | cache |
 | `--model_path` | Path to ONNX classification model | - |
 | `--lazy_load` | Lazily load ONNX classification model | False |
+| `--hide_image_upload` | Hide the image uploader | False |
 | `--port` | Port to run the app on | 7860 |
 | `--debug` | Run in debug mode | False |
 

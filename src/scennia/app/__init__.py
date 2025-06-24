@@ -1,6 +1,5 @@
 import argparse
 from timeit import default_timer as timer
-from typing import Any
 
 import dash
 import dash_bootstrap_components as dbc
@@ -23,6 +22,7 @@ from scennia.app.data import (
     ImageData,
     ImageMetaData,
     ProcessedData,
+    confidence_into_english,
     relative_lactate_concentration_into_resistance,
 )
 from scennia.app.image import (
@@ -34,6 +34,7 @@ from scennia.app.image import (
     decode_image,
     encode_image,
     lactate_concentration_color,
+    lactate_resistance_color,
 )
 from scennia.app.layout import (
     cell_info_processed_placeholder,
@@ -41,10 +42,6 @@ from scennia.app.layout import (
     summary_placeholder,
 )
 from scennia.app.model import ModelManager
-
-# Constants
-PIXEL_LENGTH_TO_MICROMETER = 1.0 / 3.46
-PIXEL_AREA_TO_MICROMETER = 1.0 / 12.0
 
 # ML model manager
 MODEL_MANAGER = ModelManager()
@@ -131,10 +128,6 @@ app.index_string = """
 </html>
 """
 
-# Set layout
-app.layout = create_layout()
-
-
 # Process arguments
 config = {"resave_processed_data": False}
 
@@ -144,6 +137,11 @@ def main():
     parser.add_argument("--cache_path", type=str, default="cache", help="Path to load and save cached data from")
     parser.add_argument("--model_path", type=str, default=None, help="Path to ONNX classification model")
     parser.add_argument("--lazy_load", action="store_true", help="Lazily load ONNX classification model")
+    parser.add_argument(
+        "--hide_image_upload",
+        action="store_true",
+        help="Hide the image uploader",
+    )
     parser.add_argument("--port", type=int, default=7860, help="Port to run the app on")
     parser.add_argument("--debug", action="store_true", help="Run in debug mode")
     parser.add_argument(
@@ -175,6 +173,10 @@ def main():
 
     # Custom config
     config["resave_processed_data"] = args.resave_processed_data is True
+    show_image_upload = args.hide_image_upload is not True
+
+    # Set layout
+    app.layout = create_layout(show_image_upload)
 
     # Run the app
     app.run(debug=args.debug, port=args.port)
@@ -223,8 +225,8 @@ def set_header_info(image_data: ImageData, processed_data: ProcessedData | None)
     # Process image
     if processed_data is not None:
         cell_count = f"Detected {len(processed_data.cells)} cells"
-        median_cell_area = f"Median cell area: {processed_data.median_area * PIXEL_AREA_TO_MICROMETER:.2f}μm"
-        mean_cell_area = f"Mean cell area: {processed_data.mean_area * PIXEL_AREA_TO_MICROMETER:.2f}μm"
+        median_cell_area = f"Median cell area: {processed_data.median_area_um:.2f}μm²"
+        mean_cell_area = f"Mean cell area: {processed_data.mean_area_um:.2f}μm²"
     else:
         cell_count = ""
         median_cell_area = ""
@@ -283,7 +285,7 @@ def show_prepared_image_callback(index, show_segmentation):
     processed_data = get_processed_data_or_process_image(hash, image_data)
     if processed_data is not None:
         figure = create_processed_image_analysis_figure(image_data, processed_data, show_segmentation)
-        summary = create_summary(processed_data)
+        summary = create_summary(image_data, processed_data)
     else:
         figure = create_image_analysis_figure(encoded_image)
         summary = summary_placeholder
@@ -363,7 +365,7 @@ def show_uploaded_image_callback(contents, file_name, show_segmentation):
     processed_data = get_processed_data_or_process_image(hash, image_data)
     if processed_data is not None:
         figure = create_processed_image_analysis_figure(image_data, processed_data, show_segmentation)
-        summary = create_summary(processed_data)
+        summary = create_summary(image_data, processed_data)
     else:
         figure = create_image_analysis_figure(encoded_image)
         summary = summary_placeholder
@@ -503,29 +505,49 @@ def get_processed_data_or_process_image(hash: str, image_data: ImageData) -> Pro
     return process_and_save_data(hash, image)
 
 
-# Creates a summary for given processed data
-def create_summary(processed_data: ProcessedData) -> Any:
-    cells = processed_data.cells
+def create_summary(image_data: ImageData, processed_data: ProcessedData) -> list[ComponentType]:
+    """Creates a summary for given processed data.
+
+    Args:
+        image_data (ImageData): Image data to use in creating a summary.
+        processed_data (ProcessedData): Processed data to summarize.
+
+    Returns:
+        list[ComponentType]: List of Dash components.
+    """
 
     summary_start = timer()
 
-    concentration_counts = {}  # For concentrations: {concentration: count}
+    content: list[ComponentType] = []
+
+    # Gather concentration data
+    actual_lactate_concentration = image_data.actual_lactate_concentration()
+    concentration_counts = {}
+    lactate_resistance_counts = {}
     classification_available = False
-    for cell in cells.values():
-        predicted_properties = cell.predicted_properties
-        if predicted_properties is not None:
+    for cell in processed_data.cells.values():
+        concentration, lactate_resistance, _ = cell.lactate_concentration(actual_lactate_concentration)
+        if concentration is not None:
             classification_available = True
-            concentration = predicted_properties.concentration
             concentration_counts[concentration] = concentration_counts.get(concentration, 0) + 1
+        if lactate_resistance is not None:
+            classification_available = True
+            lactate_resistance = relative_lactate_concentration_into_resistance(lactate_resistance)
+            lactate_resistance_counts[lactate_resistance] = lactate_resistance_counts.get(lactate_resistance, 0) + 1
 
-    summary_content: list[ComponentType] = []
+    # Default graph config and styles
+    graph_config: dcc.Graph.Config = {"displayModeBar": False}
+    graph_style = {"height": "250px", "margin": "0"}
+    graph_margin = {"l": 0, "r": 0, "t": 30, "b": 0}
+    graph_font = {"size": 12}
+    graphs = []
+
+    # Add lactate concentration graphs
     if classification_available:
-        # Create concentration distribution plot
+        # Create cell concentration bar plot
         if concentration_counts:
-            # Ensure all concentration levels are represented
-            all_concentrations = [0, 5, 10, 20, 40, 80]
+            all_concentrations = [0, 5, 10, 20, 40, 80]  # Ensure all concentration levels are represented
             plot_data = []
-
             for concentration in all_concentrations:
                 count = concentration_counts.get(concentration, 0)
                 color = lactate_concentration_color(concentration)
@@ -535,47 +557,71 @@ def create_summary(processed_data: ProcessedData) -> Any:
                     "Count": count,
                     "Color": color_label,
                 })
+            df = pd.DataFrame(plot_data)
 
-            df_plot = pd.DataFrame(plot_data)
-
-            # Create bar plot with custom colors
-            fig_bar = px.bar(
-                df_plot,
+            # Create bar plot
+            fig = px.bar(
+                df,
                 x="Concentration",
                 y="Count",
-                title="Cell Count by Lactate Concentration",
+                title="Cells by Lactate Concentration",
                 labels={"Concentration": "Lactate Concentration [mM]", "Count": "Number of Cells"},
                 text="Count",
                 text_auto=True,
                 color="Color",
-                color_discrete_map={row["Color"]: row["Color"] for _, row in df_plot.iterrows()},
+                color_discrete_map={row["Color"]: row["Color"] for _, row in df.iterrows()},
             )
-
             # Update layout
-            fig_bar.update_layout(
-                height=300,
-                margin={"l": 20, "r": 20, "t": 40, "b": 20},
-                font={"size": 12},
-                showlegend=False,  # Hide color legend since colors are self-explanatory
-            )
-
+            fig.update_layout(margin=graph_margin, font=graph_font, showlegend=False)
             # Disable zoom
-            fig_bar.update_xaxes(fixedrange=True)
-            fig_bar.update_yaxes(fixedrange=True)
+            fig.update_xaxes(fixedrange=True)
+            fig.update_yaxes(fixedrange=True)
+            # Show more info on hover
+            fig.update_traces(hovertemplate="<b>%{x}mM</b><br>Count: %{y}<extra></extra>")
+            # Add graph
+            graph = dcc.Graph(figure=fig, config=graph_config, style=graph_style)
+            graphs.append(dbc.Col(graph, width=8))
 
-            # Add concentration labels on hover
-            fig_bar.update_traces(hovertemplate="<b>%{x}</b><br>Count: %{y}<extra></extra>")
+        # Create lactate resistance pie chart
+        if lactate_resistance_counts:
+            plot_data = []
+            for lactate_resistance, count in sorted(lactate_resistance_counts.items()):
+                color = lactate_resistance_color(lactate_resistance)
+                color_label = px.colors.label_rgb(color)
+                plot_data.append({
+                    "Lactate Resistance": lactate_resistance,
+                    "Count": count,
+                    "Color": color_label,
+                })
+            df = pd.DataFrame(plot_data)
 
-            # Add the plot to summary
-            summary_content.append(
-                dcc.Graph(
-                    figure=fig_bar, config={"displayModeBar": False}, style={"height": "320px", "margin": "10px 0"}
-                )
+            # Create lactate resistance pie chart
+            fig = px.pie(
+                df,
+                names="Lactate Resistance",
+                values="Count",
+                title="Cells by Lactate Resistance",
+                labels={"Lactate Resistance": "Lactate Resistance", "Count": "Number of Cells"},
+                color="Color",
+                color_discrete_map={row["Color"]: row["Color"] for _, row in df.iterrows()},
             )
+            # Update layout
+            fig.update_layout(margin=graph_margin, font=graph_font, showlegend=False)
+            # Disable zoom
+            fig.update_xaxes(fixedrange=True)
+            fig.update_yaxes(fixedrange=True)
+            # Show counts and show more info on hover
+            fig.update_traces(
+                textinfo="value+percent",
+                hovertemplate="<b>%{label}</b><br>Count: %{value} (%{percent})<extra></extra>",
+            )
+            # Add graph
+            graph = dcc.Graph(figure=fig, config=graph_config, style=graph_style)
+            graphs.append(dbc.Col(graph, width=4))
     else:
-        large_cells = sum(cell.is_large for cell in cells.values())
-        small_cells = len(cells) - large_cells
-        summary_content.append(
+        large_cells = sum(cell.is_large for cell in processed_data.cells.values())
+        small_cells = len(processed_data.cells) - large_cells
+        content.append(
             html.P([
                 "Cell count by size: ",
                 html.Span(f"{large_cells} large", style={"color": "green", "fontWeight": "bold"}),
@@ -583,9 +629,38 @@ def create_summary(processed_data: ProcessedData) -> Any:
                 html.Span(f"{small_cells} small", style={"color": "red", "fontWeight": "bold"}),
             ])
         )
+
+    # Create cell area violin plot
+    df = pd.DataFrame([{"Area": c.area_um} for c in processed_data.cells.values()])
+    fig = px.violin(
+        df,
+        x="Area",
+        orientation="h",
+        box=True,
+        points="all",
+        title="Cell Area Distribution",
+        labels={"Area": "Cell Area [μm²]"},
+    )
+    # Update layout
+    fig.update_layout(margin=graph_margin, font=graph_font, showlegend=False)
+    # Disable zoom
+    fig.update_xaxes(fixedrange=True)
+    fig.update_yaxes(fixedrange=True)
+    # Show cell area and kde on hover, and hide verbose violins hovers
+    fig.update_traces(
+        hoveron="points+kde",
+        hovertemplate="Cell area: %{x}μm²<extra></extra>",
+    )
+    # Add graph
+    graph = dcc.Graph(figure=fig, config=graph_config, style=graph_style)
+    graphs.append(dbc.Col(graph, width=12))
+
+    # Add graphs to summary
+    content.append(dbc.Row(graphs, className="g-2"))
+
     dash.callback_context.record_timing("summary", timer() - summary_start, "Create summary")
 
-    return summary_content
+    return content
 
 
 # Classification switch toggled callback callback
@@ -739,7 +814,7 @@ def show_clicked_cell_callback(click_data, hash):
             className="img-fluid",
             style={
                 "width": "100%",
-                "max-height": "400px",
+                "height": "375px",
                 "object-fit": "cover",
                 "border": f"3px solid {border_color}",
             },
@@ -816,7 +891,7 @@ def show_clicked_cell_callback(click_data, hash):
 
         # Create graph object for cell image
         cell_image = dcc.Graph(
-            figure=cell_fig, config={"displayModeBar": False}, style={"width": "100%", "height": "300px"}
+            figure=cell_fig, config={"displayModeBar": False}, style={"width": "100%", "height": "375px"}
         )
 
     dash.callback_context.record_timing("show_cropped", timer() - show_cropped_start, "Show cropped image")
@@ -835,7 +910,7 @@ def show_clicked_cell_callback(click_data, hash):
         if r_concentration is not None:
             facts.append(html.Li(f"Relative lactate concentration: {r_concentration}mM"))
         if confidence is not None:
-            facts.append(html.Li(f"Confidence: {confidence:.2f}"))
+            facts.append(html.Li(f"Confidence: {confidence_into_english(confidence)}"))
         if r_concentration is not None:
             facts.append(
                 html.Li(
@@ -859,10 +934,9 @@ def show_clicked_cell_callback(click_data, hash):
         html.Ul(
             className="my-0",
             children=[
-                html.Li(f"Area: {cell.area * PIXEL_AREA_TO_MICROMETER:.2f}μm"),
-                html.Li(f"Perimeter: {cell.perimeter * PIXEL_LENGTH_TO_MICROMETER:.2f}μm"),
+                html.Li(f"Area: {cell.area_um:.2f}μm²"),
+                html.Li(f"Perimeter: {cell.perimeter_um:.2f}μm"),
                 html.Li(f"Eccentricity: {cell.eccentricity:.3f}"),
-                html.Li(f"Centroid: ({cell.centroid_x:.1f}, {cell.centroid_y:.1f})"),
             ],
         ),
     ])
@@ -887,18 +961,30 @@ def show_model_status_callback(_):
         return dbc.Alert(
             [
                 html.Strong("Classification Model Loaded: "),
-                f"{MODEL_MANAGER.onnx_model_metadata.get('model_name', 'Unknown')} with {MODEL_MANAGER.onnx_model_metadata.get('num_classes', 0)} classes",  # noqa: E501
+                f"{MODEL_MANAGER.onnx_model_metadata.get('model_name', 'Unknown')}",
                 html.Br(),
-                html.Small(f"Classes: {', '.join(MODEL_MANAGER.onnx_model_metadata.get('class_names', []))}"),
+                html.Small("Segmentation model: cellpose_3.0."),
             ],
             color="success",
+            className="mb-2",
+        )
+    if MODEL_MANAGER.has_onnx_model_path():
+        return dbc.Alert(
+            [
+                html.Strong("Classification Model Not Yet Loaded"),
+                html.Br(),
+                html.Small("Segmentation model: cellpose_3.0. Classification model will be loaded when required."),
+            ],
+            color="secondary",
             className="mb-2",
         )
     return dbc.Alert(
         [
             html.Strong("No Classification Model Loaded"),
             html.Br(),
-            html.Small("Cell classification will use basic size-based predictions only"),
+            html.Small(
+                "Segmentation model: cellpose_3.0. Cell classification will use basic size-based predictions only."
+            ),
         ],
         color="warning",
         className="mb-2",

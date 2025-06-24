@@ -10,6 +10,10 @@ from PIL.ImageFile import ImageFile
 from pydantic import BaseModel, Field
 from pydantic_core import to_json
 
+# Constants
+PIXEL_LENGTH_TO_MICROMETER = 1.0 / 3.46
+PIXEL_AREA_TO_MICROMETER = 1.0 / 12.0
+
 
 # Get the stem of given file name
 def file_stem(file_name: str) -> str:
@@ -103,7 +107,9 @@ class Cell(BaseModel):
     centroid_y: float
     centroid_x: float
     area: float
+    area_um: float = Field(default_factory=lambda data: data["area"] * PIXEL_AREA_TO_MICROMETER)
     perimeter: float
+    perimeter_um: float = Field(default_factory=lambda data: data["perimeter"] * PIXEL_LENGTH_TO_MICROMETER)
     eccentricity: float
     bbox: list[int]
     is_large: bool
@@ -121,6 +127,17 @@ class Cell(BaseModel):
         if concentration is not None and actual_concentration is not None:
             r_concentration = concentration - actual_concentration
         return (concentration, r_concentration, confidence)
+
+
+# Turns a 0-1 confidence value into a percentage with English conclusion.
+def confidence_into_english(confidence: float) -> str:
+    if confidence < 0.6:
+        english = "Uncertain"
+    elif confidence < 0.8:
+        english = "Confident"
+    else:
+        english = "Very confident"
+    return f"{confidence * 100:.0f}% ({english})"
 
 
 # Turns a relative lactate concentration into an English conclusion whether the cell is lactate resistance or not.
@@ -141,8 +158,10 @@ class ProcessedData(BaseModel):
     # Aggregate data about the image
     # Median cell area
     median_area: float = Field(default_factory=lambda data: float(np.median([c.area for c in data["cells"].values()])))
+    median_area_um: float = Field(default_factory=lambda data: data["median_area"] * PIXEL_AREA_TO_MICROMETER)
     # Mean cell area
     mean_area: float = Field(default_factory=lambda data: float(np.mean([c.area for c in data["cells"].values()])))
+    mean_area_um: float = Field(default_factory=lambda data: data["mean_area"] * PIXEL_AREA_TO_MICROMETER)
 
 
 # Prepared image
