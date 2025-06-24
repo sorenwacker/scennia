@@ -14,6 +14,7 @@ from scennia.app.data import (
     EncodedImage,
     ImageData,
     ProcessedData,
+    confidence_into_english,
     relative_lactate_concentration_into_resistance,
 )
 
@@ -228,7 +229,7 @@ def create_processed_image_analysis_figure(
             if r_concentration is not None:
                 hover_lines.append(f"Relative lactate concentration: {r_concentration}mM")
             if confidence is not None:
-                hover_lines.append(f"Confidence: {confidence:.2f}")
+                hover_lines.append(f"Confidence: {confidence_into_english(confidence)}")
             if r_concentration is not None:
                 conclusion = relative_lactate_concentration_into_resistance(r_concentration)
                 hover_lines.append(f"<b>Conclusion:<br>  {conclusion}</b>")

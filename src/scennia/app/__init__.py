@@ -23,6 +23,7 @@ from scennia.app.data import (
     ImageData,
     ImageMetaData,
     ProcessedData,
+    confidence_into_english,
     relative_lactate_concentration_into_resistance,
 )
 from scennia.app.image import (
@@ -835,7 +836,7 @@ def show_clicked_cell_callback(click_data, hash):
         if r_concentration is not None:
             facts.append(html.Li(f"Relative lactate concentration: {r_concentration}mM"))
         if confidence is not None:
-            facts.append(html.Li(f"Confidence: {confidence:.2f}"))
+            facts.append(html.Li(f"Confidence: {confidence_into_english(confidence)}"))
         if r_concentration is not None:
             facts.append(
                 html.Li(

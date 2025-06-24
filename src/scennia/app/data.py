@@ -123,6 +123,17 @@ class Cell(BaseModel):
         return (concentration, r_concentration, confidence)
 
 
+# Turns a 0-1 confidence value into a percentage with English conclusion.
+def confidence_into_english(confidence: float) -> str:
+    if confidence < 0.6:
+        english = "Uncertain"
+    elif confidence < 0.8:
+        english = "Confident"
+    else:
+        english = "Very confident"
+    return f"{confidence * 100:.0f}% ({english})"
+
+
 # Turns a relative lactate concentration into an English conclusion whether the cell is lactate resistance or not.
 def relative_lactate_concentration_into_resistance(r_concentration: int) -> str:
     if r_concentration <= -40:
