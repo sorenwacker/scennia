@@ -1,6 +1,5 @@
 import argparse
 from timeit import default_timer as timer
-from typing import Any
 
 import dash
 import dash_bootstrap_components as dbc
@@ -501,8 +500,17 @@ def get_processed_data_or_process_image(hash: str, image_data: ImageData) -> Pro
     return process_and_save_data(hash, image)
 
 
-# Creates a summary for given processed data
-def create_summary(image_data: ImageData, processed_data: ProcessedData) -> Any:
+def create_summary(image_data: ImageData, processed_data: ProcessedData) -> list[ComponentType]:
+    """Creates a summary for given processed data.
+
+    Args:
+        image_data (ImageData): Image data to use in creating a summary.
+        processed_data (ProcessedData): Processed data to summarize.
+
+    Returns:
+        list[ComponentType]: List of Dash components.
+    """
+
     summary_start = timer()
 
     content: list[ComponentType] = []
@@ -524,7 +532,9 @@ def create_summary(image_data: ImageData, processed_data: ProcessedData) -> Any:
 
     # Default graph config and styles
     graph_config: dcc.Graph.Config = {"displayModeBar": False}
-    graph_style = {"height": "300px", "margin": "0"}
+    graph_style = {"height": "250px", "margin": "0"}
+    graph_margin = {"l": 0, "r": 0, "t": 30, "b": 0}
+    graph_font = {"size": 12}
     graphs = []
 
     # Add lactate concentration graphs
@@ -557,20 +567,16 @@ def create_summary(image_data: ImageData, processed_data: ProcessedData) -> Any:
                 color_discrete_map={row["Color"]: row["Color"] for _, row in df.iterrows()},
             )
             # Update layout
-            fig.update_layout(
-                height=300,
-                margin={"l": 0, "r": 0, "t": 30, "b": 0},
-                font={"size": 12},
-                showlegend=False,  # Hide color legend since colors are self-explanatory
-            )
+            fig.update_layout(margin=graph_margin, font=graph_font, showlegend=False)
             # Disable zoom
             fig.update_xaxes(fixedrange=True)
             fig.update_yaxes(fixedrange=True)
-            # Show more info on hover.
+            # Show more info on hover
             fig.update_traces(hovertemplate="<b>%{x}mM</b><br>Count: %{y}<extra></extra>")
             # Add graph
             graph = dcc.Graph(figure=fig, config=graph_config, style=graph_style)
             graphs.append(dbc.Col(graph, width=8))
+
         # Create lactate resistance pie chart
         if lactate_resistance_counts:
             plot_data = []
@@ -595,16 +601,11 @@ def create_summary(image_data: ImageData, processed_data: ProcessedData) -> Any:
                 color_discrete_map={row["Color"]: row["Color"] for _, row in df.iterrows()},
             )
             # Update layout
-            fig.update_layout(
-                height=300,
-                margin={"l": 0, "r": 0, "t": 30, "b": 0},
-                font={"size": 12},
-                showlegend=False,  # Hide color legend since colors are self-explanatory
-            )
+            fig.update_layout(margin=graph_margin, font=graph_font, showlegend=False)
             # Disable zoom
             fig.update_xaxes(fixedrange=True)
             fig.update_yaxes(fixedrange=True)
-            # Show counts and show more info on hover.
+            # Show counts and show more info on hover
             fig.update_traces(
                 textinfo="value+percent",
                 hovertemplate="<b>%{label}</b><br>Count: %{value} (%{percent})<extra></extra>",
@@ -636,17 +637,13 @@ def create_summary(image_data: ImageData, processed_data: ProcessedData) -> Any:
         labels={"Area": "Cell Area [μm²]"},
     )
     # Update layout
-    fig.update_layout(
-        height=300,
-        margin={"l": 0, "r": 0, "t": 30, "b": 0},
-        font={"size": 12},
-        showlegend=False,  # Hide color legend since colors are self-explanatory
-    )
+    fig.update_layout(margin=graph_margin, font=graph_font, showlegend=False)
     # Disable zoom
     fig.update_xaxes(fixedrange=True)
     fig.update_yaxes(fixedrange=True)
-    # Show counts and show more info on hover.
+    # Show cell area and kde on hover, and hide verbose violins hovers
     fig.update_traces(
+        hoveron="points+kde",
         hovertemplate="Cell area: %{x}μm²<extra></extra>",
     )
     # Add graph
