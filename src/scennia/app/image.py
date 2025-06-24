@@ -120,7 +120,7 @@ def update_image_analysis_figure_layout(
     # Update layout - we need fixed pixel coordinates, not aspect ratio preservation
     fig.update_layout(
         autosize=True,
-        height=600,
+        height=650,
         margin={"l": 0, "r": 0, "t": 0, "b": 0},
         showlegend=False,
         plot_bgcolor="rgba(0,0,0,0)",

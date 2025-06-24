@@ -809,7 +809,7 @@ def show_clicked_cell_callback(click_data, hash):
             className="img-fluid",
             style={
                 "width": "100%",
-                "max-height": "400px",
+                "height": "375px",
                 "object-fit": "cover",
                 "border": f"3px solid {border_color}",
             },
@@ -886,7 +886,7 @@ def show_clicked_cell_callback(click_data, hash):
 
         # Create graph object for cell image
         cell_image = dcc.Graph(
-            figure=cell_fig, config={"displayModeBar": False}, style={"width": "100%", "height": "300px"}
+            figure=cell_fig, config={"displayModeBar": False}, style={"width": "100%", "height": "375px"}
         )
 
     dash.callback_context.record_timing("show_cropped", timer() - show_cropped_start, "Show cropped image")
@@ -932,7 +932,6 @@ def show_clicked_cell_callback(click_data, hash):
                 html.Li(f"Area: {cell.area_um:.2f}μm²"),
                 html.Li(f"Perimeter: {cell.perimeter_um:.2f}μm"),
                 html.Li(f"Eccentricity: {cell.eccentricity:.3f}"),
-                html.Li(f"Centroid: ({cell.centroid_x:.1f}, {cell.centroid_y:.1f})"),
             ],
         ),
     ])

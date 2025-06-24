@@ -173,29 +173,6 @@ def create_layout():
             ),
         ],
     )
-    summary_card = dbc.Card(
-        children=[
-            dbc.CardHeader(
-                children=dbc.Row(
-                    children=[
-                        dbc.Col(className="col-auto", children="Summary"),
-                        dbc.Col(id="detected-cell-count", className="col-auto"),
-                        dbc.Col(id="median-cell-area", className="col-auto"),
-                        dbc.Col(id="mean-cell-area", className="col-auto me-auto"),
-                    ],
-                ),
-            ),
-            dbc.CardBody(
-                dcc.Loading(
-                    id="loading-summary",
-                    type="circle",
-                    show_initially=False,
-                    className="mh-100",  # Align spinner by setting height to 100% even with no content
-                    children=[html.Div(id="summary", children=summary_placeholder)],
-                ),
-            ),
-        ],
-    )
     cell_info_card = dbc.Card(
         className="mh-100 h-100",
         children=[
@@ -224,6 +201,29 @@ def create_layout():
             ]),
         ],
     )
+    summary_card = dbc.Card(
+        children=[
+            dbc.CardHeader(
+                children=dbc.Row(
+                    children=[
+                        dbc.Col(className="col-auto", children="Summary"),
+                        dbc.Col(id="detected-cell-count", className="col-auto"),
+                        dbc.Col(id="median-cell-area", className="col-auto"),
+                        dbc.Col(id="mean-cell-area", className="col-auto me-auto"),
+                    ],
+                ),
+            ),
+            dbc.CardBody(
+                dcc.Loading(
+                    id="loading-summary",
+                    type="circle",
+                    show_initially=False,
+                    className="mh-100",  # Align spinner by setting height to 100% even with no content
+                    children=[html.Div(id="summary", children=summary_placeholder)],
+                ),
+            ),
+        ],
+    )
 
     return dbc.Container(
         fluid=True,
@@ -240,19 +240,9 @@ def create_layout():
                 children=[
                     dbc.Col(width=8, children=[prepared_images_card]),
                     dbc.Col(width=4, children=[image_upload_card]),
-                    dbc.Col(
-                        width=8,
-                        children=[
-                            dbc.Row(
-                                class_name="row-cols-1 g-2",
-                                children=[
-                                    dbc.Col(width=12, children=[image_analysis_card]),
-                                    dbc.Col(width=12, children=[summary_card]),
-                                ],
-                            )
-                        ],
-                    ),
+                    dbc.Col(width=8, children=[image_analysis_card]),
                     dbc.Col(width=4, children=[cell_info_card]),
+                    dbc.Col(width=12, children=[summary_card]),
                 ],
             ),
             # Row: Footer
