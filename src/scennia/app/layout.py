@@ -224,8 +224,6 @@ def create_layout():
             ]),
         ],
     )
-    model_status = html.Div(id="model-status")
-    alerts = html.Div(id="status-alert")
 
     return dbc.Container(
         fluid=True,
@@ -261,8 +259,8 @@ def create_layout():
             dbc.Row(
                 className="row-cols-1 g-2",
                 children=[
-                    dbc.Col(width=12, children=[model_status]),
-                    dbc.Col(width=12, children=alerts),
+                    dbc.Col(id="model-status", width=12),
+                    dbc.Col(id="status-alert", width=12),
                 ],
             ),
             # Hidden data stores

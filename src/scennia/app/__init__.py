@@ -888,18 +888,30 @@ def show_model_status_callback(_):
         return dbc.Alert(
             [
                 html.Strong("Classification Model Loaded: "),
-                f"{MODEL_MANAGER.onnx_model_metadata.get('model_name', 'Unknown')} with {MODEL_MANAGER.onnx_model_metadata.get('num_classes', 0)} classes",  # noqa: E501
+                f"{MODEL_MANAGER.onnx_model_metadata.get('model_name', 'Unknown')}",
                 html.Br(),
-                html.Small(f"Classes: {', '.join(MODEL_MANAGER.onnx_model_metadata.get('class_names', []))}"),
+                html.Small("Segmentation model: cellpose_3.0."),
             ],
             color="success",
+            className="mb-2",
+        )
+    if MODEL_MANAGER.has_onnx_model_path():
+        return dbc.Alert(
+            [
+                html.Strong("Classification Model Not Yet Loaded"),
+                html.Br(),
+                html.Small("Segmentation model: cellpose_3.0. Classification model will be loaded when required."),
+            ],
+            color="secondary",
             className="mb-2",
         )
     return dbc.Alert(
         [
             html.Strong("No Classification Model Loaded"),
             html.Br(),
-            html.Small("Cell classification will use basic size-based predictions only"),
+            html.Small(
+                "Segmentation model: cellpose_3.0. Cell classification will use basic size-based predictions only."
+            ),
         ],
         color="warning",
         className="mb-2",
