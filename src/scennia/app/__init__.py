@@ -35,6 +35,7 @@ from scennia.app.image import (
     decode_image,
     encode_image,
     lactate_concentration_color,
+    lactate_resistance_color,
 )
 from scennia.app.layout import (
     cell_info_processed_placeholder,
@@ -284,7 +285,7 @@ def show_prepared_image_callback(index, show_segmentation):
     processed_data = get_processed_data_or_process_image(hash, image_data)
     if processed_data is not None:
         figure = create_processed_image_analysis_figure(image_data, processed_data, show_segmentation)
-        summary = create_summary(processed_data)
+        summary = create_summary(image_data, processed_data)
     else:
         figure = create_image_analysis_figure(encoded_image)
         summary = summary_placeholder
@@ -364,7 +365,7 @@ def show_uploaded_image_callback(contents, file_name, show_segmentation):
     processed_data = get_processed_data_or_process_image(hash, image_data)
     if processed_data is not None:
         figure = create_processed_image_analysis_figure(image_data, processed_data, show_segmentation)
-        summary = create_summary(processed_data)
+        summary = create_summary(image_data, processed_data)
     else:
         figure = create_image_analysis_figure(encoded_image)
         summary = summary_placeholder
@@ -505,28 +506,32 @@ def get_processed_data_or_process_image(hash: str, image_data: ImageData) -> Pro
 
 
 # Creates a summary for given processed data
-def create_summary(processed_data: ProcessedData) -> Any:
-    cells = processed_data.cells
-
+def create_summary(image_data: ImageData, processed_data: ProcessedData) -> Any:
     summary_start = timer()
 
-    concentration_counts = {}  # For concentrations: {concentration: count}
+    # Gather concentration data
+    actual_lactate_concentration = image_data.actual_lactate_concentration()
+    concentration_counts = {}
+    lactate_resistance_counts = {}
     classification_available = False
-    for cell in cells.values():
-        predicted_properties = cell.predicted_properties
-        if predicted_properties is not None:
+    for cell in processed_data.cells.values():
+        concentration, lactate_resistance, _ = cell.lactate_concentration(actual_lactate_concentration)
+        if concentration is not None:
             classification_available = True
-            concentration = predicted_properties.concentration
             concentration_counts[concentration] = concentration_counts.get(concentration, 0) + 1
+        if lactate_resistance is not None:
+            classification_available = True
+            lactate_resistance = relative_lactate_concentration_into_resistance(lactate_resistance)
+            lactate_resistance_counts[lactate_resistance] = lactate_resistance_counts.get(lactate_resistance, 0) + 1
 
-    summary_content: list[ComponentType] = []
+    content: list[ComponentType] = []
     if classification_available:
+        graphs = []
+
         # Create concentration distribution plot
         if concentration_counts:
-            # Ensure all concentration levels are represented
-            all_concentrations = [0, 5, 10, 20, 40, 80]
+            all_concentrations = [0, 5, 10, 20, 40, 80]  # Ensure all concentration levels are represented
             plot_data = []
-
             for concentration in all_concentrations:
                 count = concentration_counts.get(concentration, 0)
                 color = lactate_concentration_color(concentration)
@@ -536,47 +541,83 @@ def create_summary(processed_data: ProcessedData) -> Any:
                     "Count": count,
                     "Color": color_label,
                 })
-
             df_plot = pd.DataFrame(plot_data)
 
-            # Create bar plot with custom colors
-            fig_bar = px.bar(
+            # Create bar plot
+            fig = px.bar(
                 df_plot,
                 x="Concentration",
                 y="Count",
-                title="Cell Count by Lactate Concentration",
+                title="Cells by Lactate Concentration",
                 labels={"Concentration": "Lactate Concentration [mM]", "Count": "Number of Cells"},
                 text="Count",
                 text_auto=True,
                 color="Color",
                 color_discrete_map={row["Color"]: row["Color"] for _, row in df_plot.iterrows()},
             )
-
             # Update layout
-            fig_bar.update_layout(
+            fig.update_layout(
                 height=300,
-                margin={"l": 20, "r": 20, "t": 40, "b": 20},
+                margin={"l": 0, "r": 0, "t": 30, "b": 0},
                 font={"size": 12},
                 showlegend=False,  # Hide color legend since colors are self-explanatory
             )
-
             # Disable zoom
-            fig_bar.update_xaxes(fixedrange=True)
-            fig_bar.update_yaxes(fixedrange=True)
+            fig.update_xaxes(fixedrange=True)
+            fig.update_yaxes(fixedrange=True)
+            # Show more info on hover.
+            fig.update_traces(hovertemplate="<b>%{x}mM</b><br>Count: %{y}<extra></extra>")
+            # Add graph
+            graph = dcc.Graph(figure=fig, config={"displayModeBar": False}, style={"height": "320px", "margin": "0"})
+            graphs.append(dbc.Col(graph, width=8))
+        # Create lactate resistance pie chart
+        if lactate_resistance_counts:
+            plot_data = []
+            for lactate_resistance, count in sorted(lactate_resistance_counts.items()):
+                color = lactate_resistance_color(lactate_resistance)
+                color_label = px.colors.label_rgb(color)
+                plot_data.append({
+                    "Lactate Resistance": lactate_resistance,
+                    "Count": count,
+                    "Color": color_label,
+                })
+            df_plot = pd.DataFrame(plot_data)
 
-            # Add concentration labels on hover
-            fig_bar.update_traces(hovertemplate="<b>%{x}</b><br>Count: %{y}<extra></extra>")
-
-            # Add the plot to summary
-            summary_content.append(
-                dcc.Graph(
-                    figure=fig_bar, config={"displayModeBar": False}, style={"height": "320px", "margin": "10px 0"}
-                )
+            # Create pie chart
+            fig = px.pie(
+                df_plot,
+                names="Lactate Resistance",
+                values="Count",
+                title="Cells by Lactate Resistance",
+                labels={"Lactate Resistance": "Lactate Resistance", "Count": "Number of Cells"},
+                color="Color",
+                color_discrete_map={row["Color"]: row["Color"] for _, row in df_plot.iterrows()},
             )
+            # Update layout
+            fig.update_layout(
+                height=300,
+                margin={"l": 0, "r": 0, "t": 30, "b": 0},
+                font={"size": 12},
+                showlegend=False,  # Hide color legend since colors are self-explanatory
+            )
+            # Disable zoom
+            fig.update_xaxes(fixedrange=True)
+            fig.update_yaxes(fixedrange=True)
+            # Show counts and show more info on hover.
+            fig.update_traces(
+                textinfo="value+percent",
+                hovertemplate="<b>%{label}</b><br>Count: %{value} (%{percent})<extra></extra>",
+            )
+            # Add graph
+            graph = dcc.Graph(figure=fig, config={"displayModeBar": False}, style={"height": "300px", "margin": "0"})
+            graphs.append(dbc.Col(graph, width=4))
+
+        # Add graphs to summary
+        content.append(dbc.Row(graphs))
     else:
-        large_cells = sum(cell.is_large for cell in cells.values())
-        small_cells = len(cells) - large_cells
-        summary_content.append(
+        large_cells = sum(cell.is_large for cell in processed_data.cells.values())
+        small_cells = len(processed_data.cells) - large_cells
+        content.append(
             html.P([
                 "Cell count by size: ",
                 html.Span(f"{large_cells} large", style={"color": "green", "fontWeight": "bold"}),
@@ -586,7 +627,7 @@ def create_summary(processed_data: ProcessedData) -> Any:
         )
     dash.callback_context.record_timing("summary", timer() - summary_start, "Create summary")
 
-    return summary_content
+    return content
 
 
 # Classification switch toggled callback callback

@@ -56,6 +56,15 @@ def relative_lactate_concentration_color(r_concentration: int) -> tuple[int, int
     return (int(r), int(g), int(b))  # So turn them back into ints here
 
 
+# Get the color of the cell based on its lactate resistance.
+def lactate_resistance_color(lactate_resistance: str) -> tuple[int, int, int]:
+    if lactate_resistance == "very likely lactate resistant":
+        return (64, 64, 240)
+    if lactate_resistance == "likely lactate resistant":
+        return (170, 170, 240)
+    return (240, 64, 64)
+
+
 # Try to color based on relative lactate concentration
 def concentration_color(concentration: int | None, r_concentration: int | None) -> tuple[int, int, int]:
     if r_concentration is not None:
