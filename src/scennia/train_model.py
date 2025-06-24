@@ -43,40 +43,6 @@ class ProgressiveUnfreezing(L.Callback):
             self.unfrozen = True
 
 
-class HistogramEqualization:
-    """Apply histogram equalization to normalize image intensities"""
-
-    def __call__(self, img):
-        # img is PIL Image
-        if img.mode == "L":  # Grayscale
-            # Convert to tensor for processing
-            tensor = transforms.functional.to_tensor(img)
-            tensor = self.equalize_tensor(tensor)
-            return transforms.functional.to_pil_image(tensor)
-        if img.mode == "RGB":
-            # Apply to each channel separately
-            r, g, b = img.split()
-            r_eq = transforms.functional.to_pil_image(self.equalize_tensor(transforms.functional.to_tensor(r)))
-            g_eq = transforms.functional.to_pil_image(self.equalize_tensor(transforms.functional.to_tensor(g)))
-            b_eq = transforms.functional.to_pil_image(self.equalize_tensor(transforms.functional.to_tensor(b)))
-            return Image.merge("RGB", (r_eq, g_eq, b_eq))
-        return img
-
-    def equalize_tensor(self, tensor):
-        """Apply histogram equalization to a tensor"""
-        # Flatten and get histogram
-        flat = tensor.flatten()
-        hist = torch.histc(flat, bins=256, min=0, max=1)
-
-        # Compute cumulative distribution
-        cdf = torch.cumsum(hist, dim=0)
-        cdf = cdf / cdf[-1]  # Normalize
-
-        # Map values
-        indices = (flat * 255).long().clamp(0, 255)
-        return cdf[indices].reshape(tensor.shape)
-
-
 class AspectRatioResize:
     """Resize image while preserving aspect ratio and pad to square"""
 
@@ -127,7 +93,6 @@ class CellDataModule(L.LightningDataModule):
         self.train_transforms = transforms.Compose([
             # AspectRatioResize(img_size),
             transforms.Resize((img_size, img_size)),
-            # HistogramEqualization(),
             transforms.RandomRotation(30),
             transforms.RandomHorizontalFlip(),
             transforms.RandomVerticalFlip(),
@@ -164,7 +129,7 @@ class CellDataModule(L.LightningDataModule):
         self.num_classes = len(unique_classes)
         self.class_names = unique_classes
 
-        # Get source image statistics with MORE detailed balancing
+        # Get source image statistics with detailed balancing
         source_image_stats = (
             df.groupby("source_image")
             .agg({"label": ["first", "count"], "treatment_type": "first", "concentration": "first"})
@@ -302,11 +267,9 @@ class CellDataset(Dataset):
 
         image = Image.open(img_path)
 
-        # Convert grayscale to RGB if needed (most models expect 3 channels)
-        if image.mode == "L":  # Grayscale
-            image = image.convert("RGB")  # Convert to 3-channel RGB
-        elif image.mode == "RGBA":  # RGBA
-            image = image.convert("RGB")  # Remove alpha channel
+        # Convert to RGB if needed
+        if image.mode == "L" or image.mode == "RGBA":
+            image = image.convert("RGB")
 
         if self.transforms:
             image = self.transforms(image)
@@ -684,7 +647,7 @@ def train_model(
     ]
 
     # Progressive unfreezing callback
-    if unfreeze_epochs > 0:
+    if unfreeze_epochs > -1:
         unfreeze_callback = ProgressiveUnfreezing(freeze_epochs=unfreeze_epochs, lr_reduction=unfreeze_lr_reduction)
         callbacks.append(unfreeze_callback)
 
@@ -798,7 +761,7 @@ def main():
         "--unfreeze_epochs",
         type=int,
         default=0,
-        help="Number of epochs to freeze the backbone before unfreezing (default: 0, no unfreezing)",
+        help="Number of epochs to freeze the backbone before unfreezing (default: 0, no freezing, -1 no unfreezing)",
     )
     parser.add_argument(
         "--unfreeze_lr_reduction",
@@ -808,7 +771,7 @@ def main():
     )
 
     # Class weights
-    ## Don't change this to action store true, it will break the sweeps
+    ## Don't change this to action store_true, it will break the sweeps
     parser.add_argument("--use_class_weights", type=bool, default=False, help="Enable class weight balancing")
 
     # Wandb parameters
