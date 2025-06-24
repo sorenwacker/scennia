@@ -39,10 +39,15 @@ def create_layout(show_image_upload=True):
                         dbc.Col(
                             className="col-auto",
                             children=dbc.Button(
+                                "Refresh Images",
                                 id="refresh-prepared-images",
-                                className="btn btn-secondary btn-sm lh-1",
-                                style={"padding": ".15rem"},
-                                children=html.I(className="bi bi-arrow-clockwise"),
+                                color="link",
+                                style={
+                                    "--bs-btn-padding-y": "0",
+                                    "--bs-btn-padding-x": "0",
+                                    "--bs-btn-border-width": "0",
+                                    "vertical-align": "baseline",
+                                },
                             ),
                         ),
                     ],
@@ -144,7 +149,7 @@ def create_layout(show_image_upload=True):
                     show_initially=False,
                     overlay_style={
                         "visibility": "visible",
-                        "filter": "blur(3px) opacity(25%)",
+                        "filter": "blur(3px) opacity(70%)",
                     },
                     className="mh-100",  # Align spinner by setting height to 100% even with no content
                     children=[
@@ -190,7 +195,7 @@ def create_layout(show_image_upload=True):
                     id="loading-cell-info",
                     type="circle",
                     show_initially=False,
-                    delay_show=3000,  # Delay showing spinner since loading is usually fast
+                    delay_show=1000,  # Delay showing spinner since loading is usually fast
                     className="mh-100",  # Align spinner by setting height to 100% even with no content
                     overlay_style={
                         "visibility": "visible",
@@ -210,6 +215,22 @@ def create_layout(show_image_upload=True):
                         dbc.Col(id="detected-cell-count", className="col-auto"),
                         dbc.Col(id="median-cell-area", className="col-auto"),
                         dbc.Col(id="mean-cell-area", className="col-auto me-auto"),
+                        dbc.Col(id="filter-text", className="col-auto"),
+                        dbc.Col(
+                            className="col-auto",
+                            children=dbc.Button(
+                                "Reset Filter",
+                                id="filter-reset-button",
+                                color="link",
+                                disabled=True,
+                                style={
+                                    "--bs-btn-padding-y": "0",
+                                    "--bs-btn-padding-x": "0",
+                                    "--bs-btn-border-width": "0",
+                                    "vertical-align": "baseline",
+                                },
+                            ),
+                        ),
                     ],
                 ),
             ),

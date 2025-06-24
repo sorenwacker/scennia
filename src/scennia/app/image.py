@@ -200,6 +200,8 @@ def create_processed_image_analysis_figure(
     processed_data: ProcessedData,
     show_segmentation=True,
     show_classification=True,
+    filter_concentration: int | None = None,
+    filter_resistance: str | None = None,
 ):
     """Create a complete figure with all elements, with annotations visible based on show_segmentation"""
 
@@ -230,18 +232,24 @@ def create_processed_image_analysis_figure(
             image_data.actual_lactate_concentration()
         )
 
+        # Skip if filtered by concentration
+        if filter_concentration is not None and concentration is not None and concentration is not filter_concentration:
+            continue
+
         # Create hover text with predicted properties
         hover_lines = [f"<b>Cell {id}</b>"]
-        if cell.predicted_properties:
-            if concentration is not None:
-                hover_lines.append(f"Lactate concentration: {concentration}mM")
-            if r_concentration is not None:
-                hover_lines.append(f"Relative lactate concentration: {r_concentration}mM")
-            if confidence is not None:
-                hover_lines.append(f"Confidence: {confidence_into_english(confidence)}")
-            if r_concentration is not None:
-                conclusion = relative_lactate_concentration_into_resistance(r_concentration)
-                hover_lines.append(f"<b>Conclusion:<br>  {conclusion}</b>")
+        if concentration is not None:
+            hover_lines.append(f"Lactate concentration: {concentration}mM")
+        if r_concentration is not None:
+            hover_lines.append(f"Relative lactate concentration: {r_concentration}mM")
+        if confidence is not None:
+            hover_lines.append(f"Confidence: {confidence_into_english(confidence)}")
+        if r_concentration is not None:
+            resistance = relative_lactate_concentration_into_resistance(r_concentration)
+            # Skip if filtered by resistance
+            if filter_resistance is not None and resistance is not None and resistance != filter_resistance:
+                continue
+            hover_lines.append(f"<b>Conclusion:<br>  {resistance}</b>")
         hover_lines.append("<br>Click for more info")
         hover_text = "<br>".join(hover_lines)
 

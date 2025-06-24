@@ -10,10 +10,6 @@ from PIL.ImageFile import ImageFile
 from pydantic import BaseModel, Field
 from pydantic_core import to_json
 
-# Constants
-PIXEL_LENGTH_TO_MICROMETER = 1.0 / 3.46
-PIXEL_AREA_TO_MICROMETER = 1.0 / 12.0
-
 
 # Get the stem of given file name
 def file_stem(file_name: str) -> str:
@@ -99,6 +95,11 @@ class CellPrediction(BaseModel):
     treatment_type: str
     concentration: int
     all_predictions: list[float]
+
+
+# Pixel to μm constants
+PIXEL_LENGTH_TO_MICROMETER = 1.0 / 3.46
+PIXEL_AREA_TO_MICROMETER = 1.0 / 12.0
 
 
 # Cell data
