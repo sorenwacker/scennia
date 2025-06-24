@@ -128,10 +128,6 @@ app.index_string = """
 </html>
 """
 
-# Set layout
-app.layout = create_layout()
-
-
 # Process arguments
 config = {"resave_processed_data": False}
 
@@ -141,6 +137,11 @@ def main():
     parser.add_argument("--cache_path", type=str, default="cache", help="Path to load and save cached data from")
     parser.add_argument("--model_path", type=str, default=None, help="Path to ONNX classification model")
     parser.add_argument("--lazy_load", action="store_true", help="Lazily load ONNX classification model")
+    parser.add_argument(
+        "--hide_image_upload",
+        action="store_true",
+        help="Hide the image uploader",
+    )
     parser.add_argument("--port", type=int, default=7860, help="Port to run the app on")
     parser.add_argument("--debug", action="store_true", help="Run in debug mode")
     parser.add_argument(
@@ -172,6 +173,10 @@ def main():
 
     # Custom config
     config["resave_processed_data"] = args.resave_processed_data is True
+    show_image_upload = args.hide_image_upload is not True
+
+    # Set layout
+    app.layout = create_layout(show_image_upload)
 
     # Run the app
     app.run(debug=args.debug, port=args.port)
