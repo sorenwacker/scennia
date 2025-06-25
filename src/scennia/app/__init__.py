@@ -1,4 +1,5 @@
 import argparse
+from typing import Any
 
 import dash
 import dash_bootstrap_components as dbc
@@ -41,17 +42,27 @@ from scennia.app.image import (
 )
 from scennia.app.layout import (
     CELL_INFO_BODY_ID,
+    CELL_INFO_ID_ID,
+    CELL_INFO_LACTATE_CONCENTRATION_ID,
     HASH_STORE,
+    IMAGE_ANALYSIS_ACTUAL_LACTATE_CONCENTRATION_ID,
     IMAGE_ANALYSIS_CLASSIFICATION_ID,
     IMAGE_ANALYSIS_FILTER_STORE,
     IMAGE_ANALYSIS_GRAPH_ID,
+    IMAGE_ANALYSIS_LOADING_ID,
     IMAGE_ANALYSIS_SEGMENTATION_ID,
+    PREPARED_IMAGES_COUNT_ID,
+    PREPARED_IMAGES_ID,
+    PREPARED_IMAGES_REFRESH_ID,
     PROCESSED_HASH_STORE_ID,
+    SELECTED_CELL_STORE,
     STATISTICS_BODY_ID,
     STATISTICS_CELL_AREA_ID,
     STATISTICS_CELL_COUNT_ID,
     STATISTICS_FITER_ID,
     STATISTICS_FITER_RESET_ID,
+    UPLOAD_IMAGE_FILE_NAME_ID,
+    UPLOAD_IMAGE_ID,
     cell_info_processed_placeholder,
     create_layout,
     statistics_placeholder,
@@ -101,9 +112,10 @@ app.clientside_callback(
         return newFigure;
     }
     """,
-    Output(IMAGE_ANALYSIS_GRAPH_ID, "figure"),
+    Output(IMAGE_ANALYSIS_GRAPH_ID, "figure", allow_duplicate=True),
     Input(IMAGE_ANALYSIS_SEGMENTATION_ID, "value"),
     State(IMAGE_ANALYSIS_GRAPH_ID, "figure"),
+    prevent_initial_call=True,
 )
 
 # Add inline CSS
@@ -202,13 +214,21 @@ if __name__ == "__main__":
     main()
 
 
-# Show prepared images
 @callback(
-    Output("prepared-images", "options"),
-    Input("refresh-prepared-images", "n_clicks"),
+    Output(PREPARED_IMAGES_COUNT_ID, "children"),
+    Output(PREPARED_IMAGES_ID, "options"),
+    Input(PREPARED_IMAGES_REFRESH_ID, "n_clicks"),
 )
-def show_prepared_images_callback(n_clicks):
-    reload = n_clicks is not None and n_clicks > 0
+def prepared_images_update_callback(refresh_clicks: int | None) -> tuple[str, list]:
+    """Prepared images update callback.
+    Args:
+        n_clicks (int | None): Number of times the "Refresh Images" button was clicked.
+    Returns:
+        tuple[str, list]: Number of images loaded and a list of options for `bc.RadioItems`.
+    """
+    reload = refresh_clicks is not None and refresh_clicks > 0
+
+    print(f"Update prepared images: reload={reload}")
 
     with Timer("get_prepared_images", "Get prepared images"):
         prepared_images = DATA_MANAGER.get_prepared_images(reload)
@@ -228,27 +248,36 @@ def show_prepared_images_callback(n_clicks):
                 "value_id": f"prepared-image-value-{i}",
             })
 
-    set_props("prepared-image-count", {"children": f"{len(options)} Images Loaded"})
-    return options
+    return f"{len(options)} Images Loaded", options
 
 
-# Disable prepared images, upload, and switches while running.
-RUNNING_DISABLE = [
-    (Output("prepared-images", "disabled"), True, False),
-    (Output("upload-image", "disabled"), True, False),
-    (Output(IMAGE_ANALYSIS_SEGMENTATION_ID, "disabled"), True, False),
-    (Output(IMAGE_ANALYSIS_CLASSIFICATION_ID, "disabled"), True, False),
-]
+def image_analysis_running_components(final_callback: bool) -> list[tuple[Output, Any, Any]]:
+    """Returns the list of components to change while an image analysis callback is running.
+    Args:
+        last_step (bool): Whether we are in the final callback of a callback chain, which will enable the components
+        again when the callback is done running.
+    Returns:
+        list[tuple[Output, Any, Any]]: List of components to change
+    """
+    return [
+        (Output(PREPARED_IMAGES_ID, "disabled"), True, not final_callback),
+        (Output(UPLOAD_IMAGE_ID, "disabled"), True, not final_callback),
+        (Output(IMAGE_ANALYSIS_SEGMENTATION_ID, "disabled"), True, not final_callback),
+        (Output(IMAGE_ANALYSIS_CLASSIFICATION_ID, "disabled"), True, not final_callback),
+        (Output(IMAGE_ANALYSIS_LOADING_ID, "display"), "show", "auto" if final_callback else "show"),
+    ]
 
 
 # Click prepared image callback.
 @callback(
     Output(HASH_STORE, "data", allow_duplicate=True),
-    Input("prepared-images", "value"),
-    running=[(Output("upload-image", "disabled"), True, False), (Output("prepared-images", "disabled"), True, False)],
+    Output(IMAGE_ANALYSIS_FILTER_STORE, "data", allow_duplicate=True),
+    Output(SELECTED_CELL_STORE, "data", allow_duplicate=True),
+    Input(PREPARED_IMAGES_ID, "value"),
+    running=image_analysis_running_components(False),
     prevent_initial_call=True,
 )
-def click_prepared_image(index):
+def click_prepared_image_callback(index: int | None) -> tuple[str, None, None]:
     if index is None:
         raise PreventUpdate
 
@@ -266,25 +295,28 @@ def click_prepared_image(index):
     with Timer("update_image_data", "Update image data"):
         DATA_MANAGER.update_image_data(hash, ImageData(encoded_image=encoded_image))
 
-    return hash
+    # Return `hash` for `HASH_STORE`, reset `IMAGE_ANALYSIS_FILTER_STORE` and `SELECTED_CELL_STORE`.
+    return hash, None, None
 
 
 # Upload image callback.
 @callback(
     Output(HASH_STORE, "data", allow_duplicate=True),
-    Input("upload-image", "contents"),
-    State("upload-image", "filename"),
-    running=[(Output("upload-image", "disabled"), True, False), (Output("prepared-images", "disabled"), True, False)],
+    Output(IMAGE_ANALYSIS_FILTER_STORE, "data", allow_duplicate=True),
+    Output(SELECTED_CELL_STORE, "data", allow_duplicate=True),
+    Input(UPLOAD_IMAGE_ID, "contents"),
+    State(UPLOAD_IMAGE_ID, "filename"),
+    running=image_analysis_running_components(False),
     prevent_initial_call=True,
 )
-def upload_image_callback(contents, file_name):
+def upload_image_callback(contents: str | None, file_name: str | None) -> tuple[str, None, None]:
     if contents is None or file_name is None:
         raise PreventUpdate
 
     print(f"Uploaded image: {file_name}")
 
     # Update header
-    set_props("image-filename", {"children": file_name})
+    set_props(UPLOAD_IMAGE_FILE_NAME_ID, {"children": file_name})
 
     # Create image meta data from uploaded file name.
     meta_data = ImageMetaData(file_name=file_name)
@@ -303,18 +335,18 @@ def upload_image_callback(contents, file_name):
         image_data = ImageData(meta_data=meta_data, encoded_image=encoded_image)
         DATA_MANAGER.save_image_data(hash, image_data)
 
-    return hash
+    # Return `hash` for `HASH_STORE`, reset `IMAGE_ANALYSIS_FILTER_STORE` and `SELECTED_CELL_STORE`.
+    return hash, None, None
 
 
-# Image hash change callback: ensures the image is processed, resets some things, and sets `PROCESSED_HASH_STORE_ID`.
+# Image hash change callback: ensures the image is processed, and sets `PROCESSED_HASH_STORE_ID`.
 @callback(
     Output(PROCESSED_HASH_STORE_ID, "data"),
-    Output(IMAGE_ANALYSIS_FILTER_STORE, "data"),
     Input(HASH_STORE, "data"),
-    running=RUNNING_DISABLE,
+    running=image_analysis_running_components(False),
     prevent_initial_call=True,
 )
-def image_hash_change_callback(hash: str | None):
+def image_hash_change_callback(hash: str | None) -> str:
     if hash is None:
         raise PreventUpdate
     print(f"Image hash update: {hash}")
@@ -352,16 +384,11 @@ def image_hash_change_callback(hash: str | None):
     else:
         actual_lactate_concentration = ""
         file_name = ""
-    set_props("actual-lactate-concentration", {"children": actual_lactate_concentration})
-    set_props("image-filename", {"children": file_name})
+    set_props(IMAGE_ANALYSIS_ACTUAL_LACTATE_CONCENTRATION_ID, {"children": actual_lactate_concentration})
+    set_props(UPLOAD_IMAGE_FILE_NAME_ID, {"children": file_name})
 
-    # Reset cell info
-    set_props(CELL_INFO_BODY_ID, {"children": cell_info_processed_placeholder})
-    set_props("cell-lactate-concentration", {"children": ""})
-    set_props("cell-id", {"children": ""})
-
-    # Processed data now available: return `hash` for `PROCESSED_HASH_STORE_ID` and reset `IMAGE_ANALYSIS_FILTER_STORE`.
-    return hash, None
+    # Return `hash` for `PROCESSED_HASH_STORE_ID`.
+    return hash
 
 
 def process_and_save_data(hash: str, image: ImageFile) -> ProcessedData:
@@ -462,6 +489,7 @@ def process_and_save_data(hash: str, image: ImageFile) -> ProcessedData:
     State(IMAGE_ANALYSIS_SEGMENTATION_ID, "value"),
     Input(IMAGE_ANALYSIS_CLASSIFICATION_ID, "value"),
     Input(IMAGE_ANALYSIS_FILTER_STORE, "data"),
+    running=image_analysis_running_components(True),
     prevent_initial_call=True,
 )
 def image_analysis_update_callback(
@@ -469,7 +497,7 @@ def image_analysis_update_callback(
     show_segmentation: bool | None,
     show_classification: bool | None,
     filter_str: str | None,
-):
+) -> go.Figure:
     if hash is None:
         raise PreventUpdate
 
@@ -497,7 +525,7 @@ def image_analysis_update_callback(
 
 # Statistics update callback
 @callback(
-    Output(STATISTICS_BODY_ID, "children", allow_duplicate=True),
+    Output(STATISTICS_BODY_ID, "children"),
     Input(PROCESSED_HASH_STORE_ID, "data"),
     prevent_initial_call=True,
 )
@@ -673,190 +701,99 @@ def create_statistics(image_data: ImageData, processed_data: ProcessedData) -> l
     return content
 
 
-# Cell clicked callback
+# Cell clicked callback: finds the ID of the clicked cell and sets `SELECTED_CELL_STORE` to it.
 @callback(
-    Output(CELL_INFO_BODY_ID, "children", allow_duplicate=True),
+    Output(SELECTED_CELL_STORE, "data", allow_duplicate=True),
     Input(IMAGE_ANALYSIS_GRAPH_ID, "clickData"),
     State(PROCESSED_HASH_STORE_ID, "data"),
     prevent_initial_call=True,
 )
-def cell_clicked_callback(click_data, hash):
+def cell_clicked_callback(click_data, hash: str | None) -> int:
     if click_data is None or hash is None:
+        raise PreventUpdate
+
+    # Get click coordinates
+    if "points" not in click_data or not click_data["points"] or len(click_data["points"]) == 0:
+        print(f"cell_clicked_callback: skipping; no points in click data: {click_data}")
+        raise PreventUpdate
+    point = click_data["points"][0]
+
+    # Get custom data
+    if "customdata" not in point:
+        print(f"cell_clicked_callback: skipping; no 'customdata' property in clicked point: {point}")
+        raise PreventUpdate
+    customdata = point["customdata"]
+
+    # Convert custom data to cell ID.
+    if isinstance(customdata, list):
+        if len(customdata) > 0:
+            cell_id = customdata[0][0] if isinstance(customdata[0], list) else customdata[0]
+        else:
+            print("cell_clicked_callback: skipping; 'customdata' is an empty list")
+            raise PreventUpdate
+    else:
+        cell_id = customdata
+    print(f"Clicked cell: {cell_id}")
+
+    return int(cell_id)
+
+
+# Cell info update callback
+@callback(
+    Output(CELL_INFO_ID_ID, "children"),
+    Output(CELL_INFO_LACTATE_CONCENTRATION_ID, "children"),
+    Output(CELL_INFO_BODY_ID, "children"),
+    Input(SELECTED_CELL_STORE, "data"),
+    State(PROCESSED_HASH_STORE_ID, "data"),
+    prevent_initial_call=True,
+)
+def cell_info_update_callback(selected_cell: int | None, hash: str | None):
+    if selected_cell is None:
+        return "", "", cell_info_processed_placeholder
+
+    if hash is None:
         raise PreventUpdate
 
     # Get required data
     image_data = DATA_MANAGER.get_image_data_or_raise(hash)
-    encoded_image = image_data.encoded_image
     processed_data = DATA_MANAGER.get_processed_data_or_raise(hash)
     cropped_encoded_images = processed_data.cropped_encoded_images
     cells = processed_data.cells
 
-    # Find clicked cell
-    find_timer = Timer("find_cell", "Find cell")
+    print(f"Cell info update: {selected_cell}")
 
-    # Get click coordinates
-    if "points" not in click_data or not click_data["points"] or len(click_data["points"]) == 0:
-        print("show_clicked_cell: no points in click data; skip")
-        raise PreventUpdate
-    point = click_data["points"][0]
+    # Check if cell exist
+    if selected_cell not in cells:
+        return "", "", html.P(f"Cell '{selected_cell}' not found", className="text-muted")
+    cell = cells[selected_cell]
 
-    # Check customdata
-    if "customdata" not in point:
-        # No customdata, use closest cell approach
-        if "x" not in point or "y" not in point:
-            print("show_clicked_cell: no x or y in point; skip")
-            raise PreventUpdate
-
-        click_x = point["x"]
-        click_y = point["y"]
-
-        # Find the closest cell to the click coordinates
-        closest_cell = None
-        min_distance = float("inf")
-
-        for cell in cells.values():
-            dx = cell.centroid_x - click_x
-            dy = cell.centroid_y - click_y
-            distance = dx * dx + dy * dy  # Squared distance is enough for comparison
-
-            if distance < min_distance:
-                min_distance = distance
-                closest_cell = cell
-
-        # Set a maximum distance threshold (radius squared)
-        max_distance_threshold = 30 * 30  # 30 pixel radius
-        if min_distance > max_distance_threshold:
-            return html.P("Click closer to a cell center to view its details", className="text-muted")
-
-        # We found a cell close to the click
-        cell = closest_cell
-    else:
-        # Extract the cell ID from customdata
-        customdata = point["customdata"]
-
-        if isinstance(customdata, list):
-            if len(customdata) > 0:
-                # Fixed ternary operator (SIM108)
-                cell_id = customdata[0][0] if isinstance(customdata[0], list) else customdata[0]
-            else:
-                return html.P("Invalid click data", className="text-muted")
-        else:
-            # Direct value
-            cell_id = customdata
-
-        # Find the cell in our data
-        cell = cells[cell_id]
-    find_timer.record()
-
-    # If no cell was found, show a placeholder.
-    if not cell:
-        return html.P(f"Cell data not found for ID {cell_id}", className="text-muted")
-
-    # Get cropped image
-    cropped_encoded_image = cropped_encoded_images[cell_id]
-
-    show_cropped_timer = Timer("show_cropped", "Show cropped image")
+    # Gather cell info
+    content: list[ComponentType] = []
 
     # Get predicted and relative lactate concentration, along with the confidence of the prediction.
     (concentration, r_concentration, confidence) = cell.lactate_concentration(image_data.actual_lactate_concentration())
 
-    # Try to color based on relative lactate concentration
-    border_color = rgb_to_hex(concentration_color(concentration, r_concentration))
+    # Add cropped cell image
+    with Timer("add_cropped_cell_image", "Add cropped cell image"):
+        cropped_encoded_image = cropped_encoded_images.get(selected_cell)
+        if cropped_encoded_image is not None:
+            # Try to color based on relative lactate concentration
+            border_color = rgb_to_hex(concentration_color(concentration, r_concentration))
+            content.append(
+                html.Img(
+                    src=cropped_encoded_image.contents,
+                    className="img-fluid",
+                    style={
+                        "width": "100%",
+                        "height": "375px",
+                        "object-fit": "cover",
+                        "border": f"3px solid {border_color}",
+                    },
+                )
+            )
 
-    if cropped_encoded_image:
-        # Use the cached cropped image directly
-        cell_image = html.Img(
-            src=cropped_encoded_image.contents,
-            className="img-fluid",
-            style={
-                "width": "100%",
-                "height": "375px",
-                "object-fit": "cover",
-                "border": f"3px solid {border_color}",
-            },
-        )
-    else:
-        print("Creating cropped image dynamically (fallback)")
-
-        encoded_image = image_data.encoded_image
-
-        # Create the cropped image dynamically (fallback)
-        y0, x0, y1, x1 = cell.bbox
-        padding = 10
-        y0 = max(0, y0 - padding)
-        x0 = max(0, x0 - padding)
-        y1 = min(encoded_image.height, y1 + padding)
-        x1 = min(encoded_image.width, x1 + padding)
-
-        # Create a zoomed-in view of the cell
-        cell_fig = go.Figure()
-
-        # Add the original image
-        cell_fig.add_layout_image({
-            "source": encoded_image,
-            "xref": "x",
-            "yref": "y",
-            "x": 0,
-            "y": 0,
-            "sizex": x1 - x0,
-            "sizey": y1 - y0,
-            "sizing": "stretch",
-            "opacity": 1,
-            "layer": "below",
-        })
-
-        # Draw a rectangle around the cell
-        cell_fig.add_shape(
-            type="rect",
-            x0=x0,
-            y0=y0,
-            x1=x1,
-            y1=y1,
-            line={"color": border_color, "width": 3},
-            fillcolor="rgba(0,0,0,0)",
-        )
-
-        # Update layout to zoom in on the cell
-        cell_fig.update_layout(
-            autosize=True,
-            height=300,
-            margin={"l": 0, "r": 0, "t": 0, "b": 0},
-            showlegend=False,
-            plot_bgcolor="rgba(0,0,0,0)",
-            paper_bgcolor="rgba(0,0,0,0)",
-        )
-
-        # Set axes ranges to zoom on the cell
-        cell_fig.update_xaxes(
-            range=[x0, x1],
-            showticklabels=False,
-            showgrid=False,
-            zeroline=False,
-            visible=False,
-            constrain="domain",
-        )
-        cell_fig.update_yaxes(
-            range=[y1, y0],  # Reversed for image coordinates
-            showticklabels=False,
-            showgrid=False,
-            zeroline=False,
-            visible=False,
-            scaleanchor="x",
-            scaleratio=1.0,
-        )
-
-        # Create graph object for cell image
-        cell_image = dcc.Graph(
-            figure=cell_fig, config={"displayModeBar": False}, style={"width": "100%", "height": "375px"}
-        )
-
-    show_cropped_timer.record()
-
-    # Create cell details with predicted properties
-    details_timer = Timer("details", "Create details")
-    cell_info: list[ComponentType] = [
-        cell_image,
-    ]
+    # Add cell info
+    timer = Timer("add_info", "Add info")
 
     # Add classification if available
     if cell.predicted_properties is not None:
@@ -874,7 +811,7 @@ def cell_clicked_callback(click_data, hash):
                     className="fw-bold",
                 )
             )
-        cell_info.append(
+        content.append(
             html.Div(
                 className="p-2 my-3 border rounded border-primary-subtle bg-secondary-subtle",
                 children=[
@@ -884,8 +821,8 @@ def cell_clicked_callback(click_data, hash):
             )
         )
 
-    # Add cell data
-    cell_info.extend([
+    # Add data
+    content.extend([
         html.H6("Cell Data"),
         html.Ul(
             className="my-0",
@@ -896,15 +833,11 @@ def cell_clicked_callback(click_data, hash):
             ],
         ),
     ])
-    details_timer.record()
 
-    set_props(
-        "cell-lactate-concentration",
-        {"children": f"Lactate concentration: {concentration}mM" if concentration is not None else ""},
-    )
-    set_props("cell-id", {"children": f"#{cell_id}" if cell_id is not None else ""})
+    timer.record()
 
-    return cell_info
+    concentration_str = f"Lactate concentration: {concentration}mM" if concentration is not None else ""
+    return concentration_str, f"#{selected_cell}", content
 
 
 # Filter by concentration callback
@@ -914,7 +847,7 @@ def cell_clicked_callback(click_data, hash):
     State(IMAGE_ANALYSIS_FILTER_STORE, "data"),
     prevent_initial_call=True,
 )
-def filter_by_concentration_callback(click_data, filter_str: str | None):
+def filter_by_concentration_callback(click_data: Any | None, filter_str: str | None) -> str:
     # Get lactate concentration to filter by
     concentration = None
     if click_data is not None:
@@ -927,7 +860,7 @@ def filter_by_concentration_callback(click_data, filter_str: str | None):
         # Get concentration to filter by
         if "x" not in point:
             print(f"filter_by_concentration_callback: skipping; no 'x' property in clicked point: {point}")
-            raise dash.exceptions.PreventUpdate
+            raise PreventUpdate
         concentration = int(point["x"])
 
     # Get filter
@@ -950,7 +883,7 @@ def filter_by_concentration_callback(click_data, filter_str: str | None):
     State(IMAGE_ANALYSIS_FILTER_STORE, "data"),
     prevent_initial_call=True,
 )
-def filter_by_lactate_resistance_callback(click_data, filter_str: str | None):
+def filter_by_lactate_resistance_callback(click_data: Any | None, filter_str: str | None) -> str:
     # Get lactate resistance to filter by
     resistance = None
     if click_data is not None:
@@ -986,7 +919,7 @@ def filter_by_lactate_resistance_callback(click_data, filter_str: str | None):
     State(IMAGE_ANALYSIS_FILTER_STORE, "data"),
     prevent_initial_call=True,
 )
-def filter_by_area_callback(selected_data, filter_str: str | None):
+def filter_by_area_callback(selected_data: Any | None, filter_str: str | None) -> str:
     # Get area to filter by
     area = None
     if selected_data is not None:
@@ -1011,14 +944,14 @@ def filter_by_area_callback(selected_data, filter_str: str | None):
     return filter.to_json()
 
 
-# Update filter callback
+# Filter update callback
 @callback(
     Output(STATISTICS_FITER_ID, "children", allow_duplicate=True),
     Output(STATISTICS_FITER_RESET_ID, "disabled", allow_duplicate=True),
     Input(IMAGE_ANALYSIS_FILTER_STORE, "data"),
     prevent_initial_call=True,
 )
-def update_filter_callback(filter_str: str | None):
+def filter_update_callback(filter_str: str | None) -> tuple[str, bool]:
     filter = ImageAnalysisFilter() if filter_str is None else ImageAnalysisFilter.from_json(filter_str)
 
     facets_text = ""
@@ -1029,7 +962,7 @@ def update_filter_callback(filter_str: str | None):
         reset_disabled = False
 
     # Set filter facets text and whether filter reset button is disabled
-    print(f"Update filter: facets text={facets_text}, reset disabled={reset_disabled}")
+    print(f"Update filter: facets_text={facets_text}, reset_disabled={reset_disabled}")
     return facets_text, reset_disabled
 
 
@@ -1041,14 +974,15 @@ def update_filter_callback(filter_str: str | None):
     Input(STATISTICS_FITER_RESET_ID, "n_clicks"),
     prevent_initial_call=True,
 )
-def reset_filter_callback(n_clicks: int | None):
+def reset_filter_callback(n_clicks: int | None) -> tuple[str, bool, None]:
     if n_clicks is None or n_clicks == 0:
         raise PreventUpdate
+
+    print("Reset filter")
 
     # Reset clickData
     set_props("cell-concentration-graph", {"clickData": None})
     set_props("cell-lactate-resistance-graph", {"clickData": None})
-    set_props("cell-area-graph", {"clickData": None})
 
     # Reset selectedData
     set_props("cell-area-graph", {"selectedData": None})
@@ -1060,7 +994,7 @@ def reset_filter_callback(n_clicks: int | None):
 # Add callback for model status
 @callback(
     Output("model-status", "children"),
-    Input("upload-image", "id"),  # Trigger on app load by using a static component ID
+    Input(UPLOAD_IMAGE_ID, "id"),  # Trigger on app load by using a static component ID
 )
 def show_model_status_callback(_):
     if MODEL_MANAGER.is_onnx_model_loaded() and MODEL_MANAGER.onnx_model_metadata is not None:

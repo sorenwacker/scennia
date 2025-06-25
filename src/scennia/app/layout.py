@@ -4,16 +4,28 @@ from dash import dcc, html
 
 from scennia.app.figure import update_image_analysis_figure_layout
 
-IMAGE_ANALYSIS_GRAPH_ID = "image-analysis-graph"
+# ID constants
+PREPARED_IMAGES_COUNT_ID = "prepared-images-count"
+PREPARED_IMAGES_REFRESH_ID = "prepared-images-refresh"
+PREPARED_IMAGES_ID = "prepared-images"
+
+UPLOAD_IMAGE_FILE_NAME_ID = "upload-image-file-name"
+UPLOAD_IMAGE_ID = "upload-image"
+
+IMAGE_ANALYSIS_ACTUAL_LACTATE_CONCENTRATION_ID = "image-analysis-actual-lactate-concentration"
 IMAGE_ANALYSIS_SEGMENTATION_ID = "image-analysis-segmentation"
 IMAGE_ANALYSIS_CLASSIFICATION_ID = "image-analysis-classification"
+IMAGE_ANALYSIS_LOADING_ID = "loading-image-analysis"
+IMAGE_ANALYSIS_GRAPH_ID = "image-analysis-graph"
 
-STATISTICS_BODY_ID = "statistics-body"
 STATISTICS_CELL_COUNT_ID = "statistics-cell-count"
 STATISTICS_CELL_AREA_ID = "statistics-cell-area"
 STATISTICS_FITER_ID = "statistics-filter"
 STATISTICS_FITER_RESET_ID = "statistics-filter-reset"
+STATISTICS_BODY_ID = "statistics-body"
 
+CELL_INFO_LACTATE_CONCENTRATION_ID = "cell-info-lactate-concentration"
+CELL_INFO_ID_ID = "cell-info-id"
 CELL_INFO_BODY_ID = "cell-info-body"
 
 HASH_STORE = "hash-store"
@@ -22,6 +34,7 @@ IMAGE_ANALYSIS_FILTER_STORE = "image-analysis-filter-store"
 SELECTED_CELL_STORE = "selected-cell-store"
 
 
+# Placeholders
 cell_info_placeholder = html.P(
     "Upload an image and then click on a cell to view details",
     className="text-muted m-0",
@@ -55,12 +68,12 @@ def create_layout(show_image_upload=True):
                 children=dbc.Row(
                     children=[
                         dbc.Col("Images", className="col-auto"),
-                        dbc.Col(id="prepared-image-count", className="col-auto me-auto"),
+                        dbc.Col(id=PREPARED_IMAGES_COUNT_ID, className="col-auto me-auto"),
                         dbc.Col(
                             className="col-auto",
                             children=dbc.Button(
                                 "Refresh Images",
-                                id="refresh-prepared-images",
+                                id=PREPARED_IMAGES_REFRESH_ID,
                                 color="link",
                                 style={
                                     "--bs-btn-padding-y": "0",
@@ -77,14 +90,14 @@ def create_layout(show_image_upload=True):
                 className="h-100 overflow-x-scroll",
                 children=[
                     dcc.Loading(
-                        id="loading-image",
+                        id="loading-prepared-images",
                         type="circle",
                         show_initially=True,
                         className="mh-100",  # Align spinner by setting height to 100% even with no content
                         children=html.Div(
                             className="radio-group h-100",
                             children=dbc.RadioItems(
-                                id="prepared-images",
+                                id=PREPARED_IMAGES_ID,
                                 name="images",
                                 className="btn-group",
                                 inputClassName="btn-check",
@@ -112,13 +125,13 @@ def create_layout(show_image_upload=True):
             dbc.CardHeader(
                 children=dbc.Row([
                     dbc.Col("Image Upload", className="col-auto me-auto"),
-                    dbc.Col(id="image-filename", className="col-auto"),
+                    dbc.Col(id=UPLOAD_IMAGE_FILE_NAME_ID, className="col-auto"),
                 ])
             ),
             dbc.CardBody([
                 dcc.Upload(
                     html.Div(["Drag and Drop or ", html.A("Select an Image", className="link-primary")]),
-                    id="upload-image",
+                    id=UPLOAD_IMAGE_ID,
                     style={
                         "width": "100%",
                         "height": "130px",
@@ -141,7 +154,7 @@ def create_layout(show_image_upload=True):
                 children=dbc.Row(
                     children=[
                         dbc.Col(className="col-auto", children="Image Analysis"),
-                        dbc.Col(id="actual-lactate-concentration", className="col-auto me-auto"),
+                        dbc.Col(id=IMAGE_ANALYSIS_ACTUAL_LACTATE_CONCENTRATION_ID, className="col-auto me-auto"),
                         dbc.Col(
                             className="col-auto",
                             children=dbc.Switch(
@@ -173,7 +186,7 @@ def create_layout(show_image_upload=True):
             ),
             dbc.CardBody(
                 dcc.Loading(
-                    id="loading-image-analysis",
+                    id=IMAGE_ANALYSIS_LOADING_ID,
                     type="circle",
                     show_initially=False,
                     overlay_style={
@@ -214,25 +227,12 @@ def create_layout(show_image_upload=True):
                 children=dbc.Row(
                     children=[
                         dbc.Col(className="col-auto", children="Cell Info"),
-                        dbc.Col(id="cell-lactate-concentration", className="col-auto me-auto"),
-                        dbc.Col(id="cell-id", className="col-auto"),
+                        dbc.Col(id=CELL_INFO_LACTATE_CONCENTRATION_ID, className="col-auto me-auto"),
+                        dbc.Col(id=CELL_INFO_ID_ID, className="col-auto"),
                     ],
                 ),
             ),
-            dbc.CardBody([
-                dcc.Loading(
-                    id="loading-cell-info",
-                    type="circle",
-                    show_initially=False,
-                    delay_show=1000,  # Delay showing spinner since loading is usually fast
-                    className="mh-100",  # Align spinner by setting height to 100% even with no content
-                    overlay_style={
-                        "visibility": "visible",
-                        "filter": "blur(3px) opacity(25%)",
-                    },
-                    children=[html.Div(id=CELL_INFO_BODY_ID, children=cell_info_placeholder)],
-                ),
-            ]),
+            dbc.CardBody(html.Div(id=CELL_INFO_BODY_ID, children=cell_info_placeholder)),
         ],
     )
     statistics_card = dbc.Card(
@@ -267,6 +267,10 @@ def create_layout(show_image_upload=True):
                     id="loading-statistics",
                     type="circle",
                     show_initially=False,
+                    overlay_style={
+                        "visibility": "visible",
+                        "filter": "blur(3px) opacity(70%)",
+                    },
                     className="mh-100",  # Align spinner by setting height to 100% even with no content
                     children=[html.Div(id=STATISTICS_BODY_ID, children=statistics_placeholder)],
                 ),
