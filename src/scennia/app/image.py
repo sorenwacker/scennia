@@ -172,7 +172,7 @@ def update_image_analysis_figure_layout(
 
 
 # Create image analysis figure
-def create_image_analysis_figure(encoded_image: EncodedImage) -> tuple[EncodedImage, go.Figure]:
+def create_image_analysis_figure(encoded_image: EncodedImage) -> go.Figure:
     # Create a figure with just the original image
     figure_start = timer()
     figure = go.Figure()
@@ -191,7 +191,7 @@ def create_image_analysis_figure(encoded_image: EncodedImage) -> tuple[EncodedIm
     update_image_analysis_figure_layout(figure, encoded_image.width, encoded_image.height, False, False)
     dash.callback_context.record_timing("figure", timer() - figure_start, "Create figure")
 
-    return encoded_image, figure
+    return figure
 
 
 # Create processed image analysis figure
@@ -202,8 +202,21 @@ def create_processed_image_analysis_figure(
     show_classification=True,
     filter_concentration: int | None = None,
     filter_resistance: str | None = None,
-):
-    """Create a complete figure with all elements, with annotations visible based on show_segmentation"""
+    filter_area: tuple[float, float] | None = None,
+) -> go.Figure:
+    """Create an image analysis figure from processed data.
+
+    Args:
+        image_data (ImageData): Image data used to create the figure.
+        processed_data (ProcessedData): Processed data used to create the figure.
+        show_segmentation (bool, optional): Whether segmentation countours should be shown. Defaults to True.
+        show_classification (bool, optional): Whether countours should be colored by classification. Defaults to True.
+        filter_concentration (int | None, optional): Only show cells with this lactate concentration. Defaults to None.
+        filter_resistance (str | None, optional): Only show cells with this lactate resistance. Defaults to None.
+
+    Returns:
+        go.Figure: Image analysis figure
+    """
 
     # Create the base figure with the original image
     figure_start = timer()
@@ -227,6 +240,12 @@ def create_processed_image_analysis_figure(
     # Add cell overlays if data exists
     cells = processed_data.cells
     for id, cell in cells.items():
+        # Skip if filtered by area
+        if filter_area is not None:
+            min_area, max_area = filter_area
+            if cell.area_um < min_area or cell.area_um > max_area:
+                continue
+
         # Get predicted and relative lactate concentration, along with the confidence of the prediction.
         (concentration, r_concentration, confidence) = cell.lactate_concentration(
             image_data.actual_lactate_concentration()

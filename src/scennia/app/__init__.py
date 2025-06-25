@@ -235,9 +235,10 @@ def set_props_after_showing_image(image_data: ImageData, processed_data: Process
     set_props("median-cell-area", {"children": median_cell_area})
     set_props("mean-cell-area", {"children": mean_cell_area})
 
-    # Reset filters and clickData
+    # Reset filters, clickData, and selectedData
     set_props_reset_filter()
     set_props_reset_click_data()
+    set_props_reset_selected_data()
 
     # Reset cell info to placeholders
     set_props("cell-lactate-concentration", {"children": ""})
@@ -987,22 +988,16 @@ def filter_by_concentration_callback(click_data, hash, show_segmentation, show_c
     filter = int(point["x"])
 
     # Get required data
-    image_data = DATA_MANAGER.get_image_data(hash)
-    if image_data is None:
-        print("filter_by_concentration_callback: no image data; skip")
-        raise dash.exceptions.PreventUpdate
-
-    processed_data = get_processed_data_or_process(hash, image_data)
-    if processed_data is None:
-        print("filter_by_concentration_callback: no processed data; skip")
-        raise dash.exceptions.PreventUpdate
+    image_data = DATA_MANAGER.get_image_data_or_raise(hash)
+    processed_data = DATA_MANAGER.get_processed_data_or_raise(hash)
 
     # Update filters
     set_props("filter-text", {"children": f"Filtering by concentration: {filter}"})
     set_props("filter-reset-button", {"disabled": False})
 
-    # Reset clickData
+    # Reset clickData and selectedData
     set_props_reset_click_data()
+    set_props_reset_selected_data()
 
     # Recreate image with concentration filter
     return create_processed_image_analysis_figure(
@@ -1036,26 +1031,57 @@ def filter_by_lactate_resistance_callback(click_data, hash, show_segmentation, s
     filter = point["label"]
 
     # Get required data
-    image_data = DATA_MANAGER.get_image_data(hash)
-    if image_data is None:
-        print("filter_by_lactate_resistance_callback: no image data; skip")
-        raise dash.exceptions.PreventUpdate
-
-    processed_data = get_processed_data_or_process(hash, image_data)
-    if processed_data is None:
-        print("filter_by_lactate_resistance_callback: no processed data; skip")
-        raise dash.exceptions.PreventUpdate
+    image_data = DATA_MANAGER.get_image_data_or_raise(hash)
+    processed_data = DATA_MANAGER.get_processed_data_or_raise(hash)
 
     # Update filters
     set_props("filter-text", {"children": f"Filtering by lactate resistance: {filter}"})
     set_props("filter-reset-button", {"disabled": False})
 
-    # Reset clickData
+    # Reset clickData and selectedData
     set_props_reset_click_data()
+    set_props_reset_selected_data()
 
     # Recreate image with concentration filter
     return create_processed_image_analysis_figure(
         image_data, processed_data, show_segmentation, show_classification, filter_resistance=filter
+    )
+
+
+# Filter by area callback
+@app.callback(
+    Output("image-analysis", "figure", allow_duplicate=True),
+    Input("cell-area-graph", "selectedData"),
+    State("image-hash-store", "data"),
+    State("show-segmentation", "value"),
+    State("show-classification", "value"),
+    prevent_initial_call=True,
+)
+def filter_by_area_callback(selected_data, hash, show_segmentation, show_classification):
+    if selected_data is None or hash is None:
+        raise dash.exceptions.PreventUpdate
+
+    # Get min and max area to filter by
+    if "range" not in selected_data or "x" not in selected_data["range"]:
+        print(f"filter_by_area_callback: skipping due to no range['x'] in selected data: {selected_data}")
+        raise dash.exceptions.PreventUpdate
+    min_area, max_area = selected_data["range"]["x"]
+    min_area = max(min_area, 0.0)  # Clamp to positive.
+
+    # Get required data
+    image_data = DATA_MANAGER.get_image_data_or_raise(hash)
+    processed_data = DATA_MANAGER.get_processed_data_or_raise(hash)
+
+    # Update filters
+    set_props("filter-text", {"children": f"Filtering by area: {min_area:.2f} - {max_area:.2f}"})
+    set_props("filter-reset-button", {"disabled": False})
+
+    # Reset clickData
+    set_props_reset_click_data()
+
+    # Recreate image with filter
+    return create_processed_image_analysis_figure(
+        image_data, processed_data, show_segmentation, show_classification, filter_area=(min_area, max_area)
     )
 
 
@@ -1102,6 +1128,11 @@ def set_props_reset_click_data():
     set_props("cell-concentration-graph", {"clickData": None})
     set_props("cell-lactate-resistance-graph", {"clickData": None})
     set_props("cell-area-graph", {"clickData": None})
+
+
+# Reset selectedData
+def set_props_reset_selected_data():
+    set_props("cell-area-graph", {"selectedData": None})
 
 
 # Add callback for model status
