@@ -1,5 +1,4 @@
 import argparse
-from timeit import default_timer as timer
 
 import dash
 import dash_bootstrap_components as dbc
@@ -8,9 +7,10 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from dash import DiskcacheManager, dcc, html, set_props
+from dash import DiskcacheManager, callback, dcc, html, set_props
 from dash.dependencies import Input, Output, State
 from dash.development.base_component import ComponentType
+from dash.exceptions import PreventUpdate
 from PIL.Image import Image
 from PIL.ImageFile import ImageFile
 from skimage.measure import find_contours, regionprops
@@ -25,23 +25,39 @@ from scennia.app.data import (
     confidence_into_english,
     relative_lactate_concentration_into_resistance,
 )
-from scennia.app.image import (
-    calculate_image_hash,
+from scennia.app.figure import (
+    ImageAnalysisFilter,
     concentration_color,
     create_image_analysis_figure,
-    create_processed_image_analysis_figure,
-    crop_cell,
-    decode_image,
-    encode_image,
+    create_placeholder_image_analysis_figure,
     lactate_concentration_color,
     lactate_resistance_color,
 )
+from scennia.app.image import (
+    calculate_image_hash,
+    crop_cell,
+    decode_image,
+    encode_image,
+)
 from scennia.app.layout import (
+    CELL_INFO_BODY_ID,
+    HASH_STORE,
+    IMAGE_ANALYSIS_CLASSIFICATION_ID,
+    IMAGE_ANALYSIS_FILTER_STORE,
+    IMAGE_ANALYSIS_GRAPH_ID,
+    IMAGE_ANALYSIS_SEGMENTATION_ID,
+    PROCESSED_HASH_STORE_ID,
+    STATISTICS_BODY_ID,
+    STATISTICS_CELL_AREA_ID,
+    STATISTICS_CELL_COUNT_ID,
+    STATISTICS_FITER_ID,
+    STATISTICS_FITER_RESET_ID,
     cell_info_processed_placeholder,
     create_layout,
-    summary_placeholder,
+    statistics_placeholder,
 )
 from scennia.app.model import ModelManager
+from scennia.app.timer import Timer
 
 # ML model manager
 MODEL_MANAGER = ModelManager()
@@ -85,9 +101,9 @@ app.clientside_callback(
         return newFigure;
     }
     """,
-    Output("image-analysis", "figure"),
-    Input("show-segmentation", "value"),
-    State("image-analysis", "figure"),
+    Output(IMAGE_ANALYSIS_GRAPH_ID, "figure"),
+    Input(IMAGE_ANALYSIS_SEGMENTATION_ID, "value"),
+    State(IMAGE_ANALYSIS_GRAPH_ID, "figure"),
 )
 
 # Add inline CSS
@@ -187,234 +203,190 @@ if __name__ == "__main__":
 
 
 # Show prepared images
-@app.callback(
+@callback(
     Output("prepared-images", "options"),
     Input("refresh-prepared-images", "n_clicks"),
 )
 def show_prepared_images_callback(n_clicks):
     reload = n_clicks is not None and n_clicks > 0
-    prepared_images = DATA_MANAGER.get_prepared_images(reload)
-    options = []
-    for i, prepared_image in enumerate(prepared_images):
-        image_data = DATA_MANAGER.get_image_data(prepared_image.hash)
-        if image_data is None:
-            encoded_image = encode_image(prepared_image.compressed_image)
-            image_data = DATA_MANAGER.update_image_data(prepared_image.hash, ImageData(encoded_image=encoded_image))
-        options.append({
-            "label": html.Img(src=image_data.encoded_image.contents, className="w-100 h-100 rounded"),
-            "value": i,
-            "input_id": f"prepared-image-input-{i}",
-            "value_id": f"prepared-image-value-{i}",
-        })
+
+    with Timer("get_prepared_images", "Get prepared images"):
+        prepared_images = DATA_MANAGER.get_prepared_images(reload)
+
+    with Timer("update_prepared_images", "Update prepared images"):
+        options = []
+        for i, prepared_image in enumerate(prepared_images):
+            image_data = DATA_MANAGER.get_image_data(prepared_image.hash)
+            if image_data is None:
+                # Encode the image and update image data, ensuring image data is available.
+                encoded_image = encode_image(prepared_image.compressed_image)
+                image_data = DATA_MANAGER.update_image_data(prepared_image.hash, ImageData(encoded_image=encoded_image))
+            options.append({
+                "label": html.Img(src=image_data.encoded_image.contents, className="w-100 h-100 rounded"),
+                "value": i,
+                "input_id": f"prepared-image-input-{i}",
+                "value_id": f"prepared-image-value-{i}",
+            })
+
     set_props("prepared-image-count", {"children": f"{len(options)} Images Loaded"})
     return options
-
-
-# Set properties after showing image. Shared code between `show_prepared_image` and `show_uploaded_image`.
-def set_props_after_showing_image(image_data: ImageData, processed_data: ProcessedData | None):
-    # Get actual lacate concentration and file name if available
-    actual_lactate_concentration = ""
-    file_name = ""
-    meta_data = image_data.meta_data
-    if meta_data is not None:
-        actual_lactate_concentration = f"Actual lactate concentration: {meta_data.actual_lactate_concentration}mM"
-        file_name = f"File: {meta_data.file_name}"
-    set_props("actual-lactate-concentration", {"children": actual_lactate_concentration})
-    set_props("image-filename", {"children": file_name})
-
-    # Process image
-    if processed_data is not None:
-        cell_count = f"Detected {len(processed_data.cells)} cells"
-        median_cell_area = f"Median cell area: {processed_data.median_area_um:.2f}μm²"
-        mean_cell_area = f"Mean cell area: {processed_data.mean_area_um:.2f}μm²"
-    else:
-        cell_count = ""
-        median_cell_area = ""
-        mean_cell_area = ""
-    set_props("detected-cell-count", {"children": cell_count})
-    set_props("median-cell-area", {"children": median_cell_area})
-    set_props("mean-cell-area", {"children": mean_cell_area})
-
-    # Reset filters, clickData, and selectedData
-    set_props_reset_filter()
-    set_props_reset_click_data()
-    set_props_reset_selected_data()
-
-    # Reset cell info to placeholders
-    set_props("cell-lactate-concentration", {"children": ""})
-    set_props("cell-id", {"children": ""})
-    set_props("cell-info", {"children": cell_info_processed_placeholder})
 
 
 # Disable prepared images, upload, and switches while running.
 RUNNING_DISABLE = [
     (Output("prepared-images", "disabled"), True, False),
     (Output("upload-image", "disabled"), True, False),
-    (Output("show-classification", "disabled"), True, False),
-    (Output("show-segmentation", "disabled"), True, False),
+    (Output(IMAGE_ANALYSIS_SEGMENTATION_ID, "disabled"), True, False),
+    (Output(IMAGE_ANALYSIS_CLASSIFICATION_ID, "disabled"), True, False),
 ]
 
 
-# Show prepared image callback
-@app.callback(
-    [
-        Output("image-analysis", "figure", allow_duplicate=True),
-        Output("summary", "children", allow_duplicate=True),
-        Output("image-hash-store", "data", allow_duplicate=True),
-    ],
+# Click prepared image callback.
+@callback(
+    Output(HASH_STORE, "data", allow_duplicate=True),
     Input("prepared-images", "value"),
-    State("show-segmentation", "value"),
-    State("show-classification", "value"),
-    background=False,
-    running=RUNNING_DISABLE,
+    running=[(Output("upload-image", "disabled"), True, False), (Output("prepared-images", "disabled"), True, False)],
     prevent_initial_call=True,
 )
-def show_prepared_image_callback(index, show_segmentation, show_classification):
+def click_prepared_image(index):
     if index is None:
-        raise dash.exceptions.PreventUpdate
+        raise PreventUpdate
 
     prepared_image = DATA_MANAGER.get_prepared_image(index)
     if prepared_image is None:
-        raise dash.exceptions.PreventUpdate
+        raise PreventUpdate
 
     image = prepared_image.compressed_image
     hash = prepared_image.hash
-    print(f"Show prepared image: {index} with hash {hash}")
+    print(f"Clicked prepared image: {index} with hash {hash}")
 
-    # Encode image
-    encoded_image = encode_image(image)
+    # Update image data, ensuring the encoded image is available.
+    with Timer("encode_prepared_image", "Encode prepared image"):
+        encoded_image = encode_image(image)
+    with Timer("update_image_data", "Update image data"):
+        DATA_MANAGER.update_image_data(hash, ImageData(encoded_image=encoded_image))
 
-    # Update image data
-    image_data = DATA_MANAGER.update_image_data(hash, ImageData(encoded_image=encoded_image))
-
-    # Process image
-    processed_data = get_processed_data_or_process(hash, image_data)
-    if processed_data is not None:
-        figure = create_processed_image_analysis_figure(
-            image_data, processed_data, show_segmentation, show_classification
-        )
-        summary = create_summary(image_data, processed_data)
-    else:
-        figure = create_image_analysis_figure(encoded_image)
-        summary = summary_placeholder
-
-    # With `--resave_processed_data`: resave processed data to save default values
-    if processed_data and config["resave_processed_data"]:
-        DATA_MANAGER.save_processed_data(hash, processed_data)
-
-    # Set header info
-    set_props_after_showing_image(image_data, processed_data)
-
-    return (
-        figure,
-        summary,
-        hash,
-    )
+    return hash
 
 
-# Show uploaded image callback
-@app.callback(
-    [
-        Output("image-analysis", "figure", allow_duplicate=True),
-        Output("summary", "children", allow_duplicate=True),
-        Output("image-hash-store", "data", allow_duplicate=True),
-    ],
+# Upload image callback.
+@callback(
+    Output(HASH_STORE, "data", allow_duplicate=True),
     Input("upload-image", "contents"),
-    [
-        State("upload-image", "filename"),
-        State("show-segmentation", "value"),
-        State("show-classification", "value"),
-    ],
-    background=False,
+    State("upload-image", "filename"),
+    running=[(Output("upload-image", "disabled"), True, False), (Output("prepared-images", "disabled"), True, False)],
+    prevent_initial_call=True,
+)
+def upload_image_callback(contents, file_name):
+    if contents is None or file_name is None:
+        raise PreventUpdate
+
+    print(f"Uploaded image: {file_name}")
+
+    # Update header
+    set_props("image-filename", {"children": file_name})
+
+    # Create image meta data from uploaded file name.
+    meta_data = ImageMetaData(file_name=file_name)
+
+    with Timer("decode", "Decode uploaded image"):
+        image = decode_image(contents)
+    with Timer("hash", "Hash uploaded image"):
+        hash = calculate_image_hash(image)
+    with Timer("save_uncompressed", "Save uncompressed image"):
+        DATA_MANAGER.save_uncompressed_image(hash, meta_data.file_extension, image)
+    with Timer("save_compressed", "Save compressed image"):
+        DATA_MANAGER.save_compressed_image(hash, image)
+    with Timer("encode", "Encode uncompressed image"):
+        encoded_image = encode_image(image)
+    with Timer("save_image_data", "Save image data"):
+        image_data = ImageData(meta_data=meta_data, encoded_image=encoded_image)
+        DATA_MANAGER.save_image_data(hash, image_data)
+
+    return hash
+
+
+# Image hash change callback: ensures the image is processed, resets some things, and sets `PROCESSED_HASH_STORE_ID`.
+@callback(
+    Output(PROCESSED_HASH_STORE_ID, "data"),
+    Output(IMAGE_ANALYSIS_FILTER_STORE, "data"),
+    Input(HASH_STORE, "data"),
     running=RUNNING_DISABLE,
     prevent_initial_call=True,
 )
-def show_uploaded_image_callback(contents, file_name, show_segmentation, show_classification):
-    if contents is None or file_name is None:
-        raise dash.exceptions.PreventUpdate
+def image_hash_change_callback(hash: str | None):
+    if hash is None:
+        raise PreventUpdate
+    print(f"Image hash update: {hash}")
 
-    print(f"Show uploaded image: {file_name}")
+    with Timer("get_image_data", "Get image data"):
+        image_data = DATA_MANAGER.get_image_data_or_raise(hash)
+
+    with Timer("get_processed_data", "Get processed data"):
+        processed_data = DATA_MANAGER.get_processed_data(hash)
+    if processed_data is None:  # Processed data not available, we need to process the image belonging to `hash`.
+        # Get required data.
+        if image_data.meta_data is None:
+            print("image_hash_change_callback: skipping; no image meta data")
+            raise PreventUpdate
+        image = DATA_MANAGER.get_uncompressed_image(hash, image_data.meta_data.file_extension)
+        if image is None:
+            print("image_hash_change_callback: skipping; no uncompressed image")
+            raise PreventUpdate
+        # Process image to get processed data, and also save it.
+        processed_data = process_and_save_data(hash, image)
+
+    # With `--resave_processed_data`: resave processed data to save default values.
+    if config["resave_processed_data"]:
+        with Timer("resave_processed_data", "Resave processed data"):
+            DATA_MANAGER.save_processed_data(hash, processed_data)
+
+    # Update headers
+    if image_data.meta_data is not None:
+        actual_lactate_concentration = (
+            f"Actual lactate concentration: {image_data.meta_data.actual_lactate_concentration}mM"
+            if image_data.meta_data.actual_lactate_concentration is not None
+            else ""
+        )
+        file_name = f"File: {image_data.meta_data.file_name}"
+    else:
+        actual_lactate_concentration = ""
+        file_name = ""
+    set_props("actual-lactate-concentration", {"children": actual_lactate_concentration})
     set_props("image-filename", {"children": file_name})
 
-    # Get meta data from file name
-    meta_data = ImageMetaData(file_name=file_name)
+    # Reset cell info
+    set_props(CELL_INFO_BODY_ID, {"children": cell_info_processed_placeholder})
+    set_props("cell-lactate-concentration", {"children": ""})
+    set_props("cell-id", {"children": ""})
 
-    # Decode uploaded image
-    decode_start = timer()
-    image = decode_image(contents)
-    dash.callback_context.record_timing("decode", timer() - decode_start, "Decode uploaded image")
-
-    # Hash uploaded image
-    hash_start = timer()
-    hash = calculate_image_hash(image)
-    dash.callback_context.record_timing("hash", timer() - hash_start, "Hash uploaded image")
-
-    # Save uploaded image
-    save_uncompressed_start = timer()
-    DATA_MANAGER.save_uncompressed_image(hash, meta_data.file_extension, image)
-    dash.callback_context.record_timing(
-        "save_uncompressed", timer() - save_uncompressed_start, "Save uncompressed image"
-    )
-
-    # Save compressed image
-    save_compressed_start = timer()
-    DATA_MANAGER.save_compressed_image(hash, image)
-    dash.callback_context.record_timing("save_compressed", timer() - save_compressed_start, "Save compressed image")
-
-    # Encode image
-    encoded_image = encode_image(image)
-
-    # Update and save image data
-    save_data_start = timer()
-    image_data = ImageData(meta_data=meta_data, encoded_image=encoded_image)
-    DATA_MANAGER.save_image_data(hash, image_data)
-    dash.callback_context.record_timing("save_image_data", timer() - save_data_start, "Save image data")
-
-    # Process image
-    processed_data = get_processed_data_or_process(hash, image_data)
-    if processed_data is not None:
-        figure = create_processed_image_analysis_figure(
-            image_data, processed_data, show_segmentation, show_classification
-        )
-        summary = create_summary(image_data, processed_data)
-    else:
-        figure = create_image_analysis_figure(encoded_image)
-        summary = summary_placeholder
-
-    # With `--resave_processed_data`: resave processed data to save default values
-    if processed_data and config["resave_processed_data"]:
-        DATA_MANAGER.save_processed_data(hash, processed_data)
-
-    # Set header info
-    set_props_after_showing_image(image_data, processed_data)
-
-    return (
-        figure,
-        summary,
-        hash,
-    )
+    # Processed data now available: return `hash` for `PROCESSED_HASH_STORE_ID` and reset `IMAGE_ANALYSIS_FILTER_STORE`.
+    return hash, None
 
 
-# Process the uncompressed image and saves the processed data
 def process_and_save_data(hash: str, image: ImageFile) -> ProcessedData:
-    print(f"Processing image with hash {hash}")
+    """Process the uncompressed `image` and save the processed data.
+    Args:
+        hash (str): Hash of the `image`.
+        image (ImageFile): Uncompressed image to process.
+    Returns:
+        ProcessedData: Processed data.
+    """
+    print(f"Processing image with hash: {hash}")
 
-    # Process image
+    # Load cellpose model
     cellpose_model = MODEL_MANAGER.get_cellpose_model()
 
-    processing_start = timer()
-
-    # Convert uncompressed image to array for processing
-    image_array = np.asarray(image)
+    # Start processing
+    processing_timer = Timer("total_processing", "Total processing")
 
     # Process with cellpose (using default values)
     flow_threshold = 0.4  # Default value
     cell_prob_threshold = 0.0  # Default value
-
-    segmentation_start = timer()
-    result = cellpose_model.eval([image_array], flow_threshold=flow_threshold, cellprob_threshold=cell_prob_threshold)
-    dash.callback_context.record_timing("segmentation", timer() - segmentation_start, "Segmentation")
-
+    with Timer("segmentation", "Segmentation"):
+        result = cellpose_model.eval(
+            [np.asarray(image)], flow_threshold=flow_threshold, cellprob_threshold=cell_prob_threshold
+        )
     mask = result[0][0]
     props = regionprops(mask)
 
@@ -422,15 +394,16 @@ def process_and_save_data(hash: str, image: ImageFile) -> ProcessedData:
     median_area = np.median([p.area for p in props]) if props else 0
     mean_area = np.mean([p.area for p in props]) if props else 0
 
-    cells: dict[int, Cell] = {}  # Cells by ID
-    cropped_images: dict[int, Image] = {}  # Cropped images by ID
+    cells: dict[int, Cell] = {}  # Cells by cell ID
+    cropped_images: dict[int, Image] = {}  # Cropped images by cell ID
 
-    crop_and_classify_start = timer()
+    # Crop and classify
+    crop_and_classify_timer = Timer("crop_and_classify", "Crop and classify")
     for i, prop in enumerate(props):
         cell_id = i + 1
         is_large = prop.area > median_area
 
-        # Create basic cell data first
+        # Create basic cell data
         cell = Cell(
             id=cell_id,
             centroid_y=float(prop.centroid[0]),
@@ -443,91 +416,120 @@ def process_and_save_data(hash: str, image: ImageFile) -> ProcessedData:
             is_large=bool(is_large),
         )
 
-        # Crop cell
+        # Crop cell image
         cropped_image = crop_cell(image, cell.bbox)
         cropped_images[cell_id] = cropped_image
 
-        # Perform classification if model is available
+        # Perform classification if model is available.
         if MODEL_MANAGER.has_onnx_model_path():
             MODEL_MANAGER.load_onnx_model_if_needed()
             try:
-                # Classify the cell crop
+                # Classify the cell, setting the predicted properties.
                 cell.predicted_properties = MODEL_MANAGER.classify_cell_crop(cropped_image)
             except Exception as e:
                 print(f"Error classifying cell {cell_id}: {e}")
 
         cells[cell_id] = cell
 
-    dash.callback_context.record_timing("crop_and_classify", timer() - crop_and_classify_start, "Crop and classify")
-    dash.callback_context.record_timing("total_processing", timer() - processing_start, "Total processing")
+    crop_and_classify_timer.record()
+    processing_timer.record()
 
-    # Encode cropped images
-    encode_start = timer()
-    cropped_encoded_images = {}
-    for cell_id, cropped_image in cropped_images.items():
-        cropped_encoded_images[cell_id] = encode_image(cropped_image)
-    dash.callback_context.record_timing("encode_cropped_images", timer() - encode_start, "Encode cropped images")
+    with Timer("encode_cropped_images", "Encode cropped images"):
+        cropped_encoded_images = {}
+        for cell_id, cropped_image in cropped_images.items():
+            cropped_encoded_images[cell_id] = encode_image(cropped_image)
 
-    # Save processed data
-    save_processed_start = timer()
-    processed_data = ProcessedData(
-        cropped_encoded_images=cropped_encoded_images,
-        cells=cells,
-        median_area=float(median_area),
-        mean_area=float(mean_area),
-    )
-    DATA_MANAGER.save_processed_data(hash, processed_data)
-    dash.callback_context.record_timing("save_processed_data", timer() - save_processed_start, "Save processed data")
+    with Timer("save_processed_data", "Save processed data"):
+        processed_data = ProcessedData(
+            cropped_encoded_images=cropped_encoded_images,
+            cells=cells,
+            median_area=float(median_area),
+            mean_area=float(mean_area),
+        )
+        DATA_MANAGER.save_processed_data(hash, processed_data)
 
-    # Save cropped images
-    save_cropped_start = timer()
-    DATA_MANAGER.save_cropped_compressed_images(hash, cropped_images)
-    dash.callback_context.record_timing(
-        "save_cropped_compressed_images", timer() - save_cropped_start, "Save compressed cropped images"
-    )
+    with Timer("save_cropped_compressed_images", "Save compressed cropped images"):
+        DATA_MANAGER.save_cropped_compressed_images(hash, cropped_images)
 
     return processed_data
 
 
-# Gets the processed data if available in memory or disk store, or processes the image and saves the processed data.
-# Returns None if the image needs to be processed but the uncompressed image or image data is not available for `hash`.
-def get_processed_data_or_process(hash: str, image_data: ImageData) -> ProcessedData | None:
-    # Get processed data from memory or disk
-    processed_data_start = timer()
-    processed_data = DATA_MANAGER.get_processed_data(hash)
-    dash.callback_context.record_timing("get_processed_data", timer() - processed_data_start, "Get processed data")
+# Image analysis update callback
+@callback(
+    Output(IMAGE_ANALYSIS_GRAPH_ID, "figure", allow_duplicate=True),
+    Input(PROCESSED_HASH_STORE_ID, "data"),
+    # State instead of input, because it is handled by a client-side callback.
+    State(IMAGE_ANALYSIS_SEGMENTATION_ID, "value"),
+    Input(IMAGE_ANALYSIS_CLASSIFICATION_ID, "value"),
+    Input(IMAGE_ANALYSIS_FILTER_STORE, "data"),
+    prevent_initial_call=True,
+)
+def image_analysis_update_callback(
+    hash: str | None,
+    show_segmentation: bool | None,
+    show_classification: bool | None,
+    filter_str: str | None,
+):
+    if hash is None:
+        raise PreventUpdate
+
+    with Timer("get_image_data", "Get image data"):
+        image_data = DATA_MANAGER.get_image_data_or_raise(hash)
+    with Timer("processed_data", "Get processed data"):
+        processed_data = DATA_MANAGER.get_processed_data_or_raise(hash)
+
+    # Normalize inputs
+    show_segmentation = show_segmentation is True
+    show_classification = show_classification is True
+    filter = ImageAnalysisFilter() if filter_str is None else ImageAnalysisFilter.from_json(filter_str)
+    print(f"Image analysis update with filter: {filter}")
+
     if processed_data is not None:
-        return processed_data
+        with Timer("create_image_analysis_figure", "Create image analysis figure"):
+            figure = create_image_analysis_figure(
+                image_data, processed_data, filter, show_segmentation, show_classification
+            )
+    else:
+        figure = create_placeholder_image_analysis_figure(image_data.encoded_image)
 
-    # Processed data not available, we need to process the image belonging to `hash`
-    # Get image metadata
-    meta_data = image_data.meta_data
-    if meta_data is None:
-        print("get_processed_data_or_process: need to process image, but image metadata is not available; skip")
-        return None
-
-    # Get uncompressed image
-    image = DATA_MANAGER.get_uncompressed_image(hash, meta_data.file_extension)
-    if image is None:
-        print("get_processed_data_or_process: need to process image, but uncompressed image is not available; skip")
-        return None
-
-    # Process image to get processed data, and also save it
-    return process_and_save_data(hash, image)
+    return figure
 
 
-def create_summary(image_data: ImageData, processed_data: ProcessedData) -> list[ComponentType]:
-    """Creates a summary for given processed data.
+# Statistics update callback
+@callback(
+    Output(STATISTICS_BODY_ID, "children", allow_duplicate=True),
+    Input(PROCESSED_HASH_STORE_ID, "data"),
+    prevent_initial_call=True,
+)
+def statistics_update_callback(hash: str | None):
+    if hash is None:
+        raise PreventUpdate
 
+    with Timer("get_image_data", "Get image data"):
+        image_data = DATA_MANAGER.get_image_data_or_raise(hash)
+    with Timer("processed_data", "Get processed data"):
+        processed_data = DATA_MANAGER.get_processed_data_or_raise(hash)
+
+    with Timer("create_statistics", "Create statistics"):
+        body = create_statistics(image_data, processed_data) if processed_data is not None else statistics_placeholder
+
+    # Update headers
+    set_props(STATISTICS_CELL_COUNT_ID, {"children": f"{len(processed_data.cells)} cells"})
+    median = f"median: {processed_data.median_area_um:.2f}μm²"
+    mean = f"mean: {processed_data.mean_area_um:.2f}μm²"
+    set_props(STATISTICS_CELL_AREA_ID, {"children": f"Cell area: {median}, {mean}"})
+
+    return body
+
+
+def create_statistics(image_data: ImageData, processed_data: ProcessedData) -> list[ComponentType]:
+    """Creates the statistics body for given processed data.
     Args:
-        image_data (ImageData): Image data to use in creating a summary.
-        processed_data (ProcessedData): Processed data to summarize.
-
+        image_data (ImageData): Image data to use in creating statistics.
+        processed_data (ProcessedData): Processed data to create statistics for.
     Returns:
         list[ComponentType]: List of Dash components.
     """
-
-    summary_start = timer()
 
     content: list[ComponentType] = []
 
@@ -668,91 +670,34 @@ def create_summary(image_data: ImageData, processed_data: ProcessedData) -> list
 
     # Add graphs to summary
     content.append(dbc.Row(graphs, className="g-2"))
-
-    dash.callback_context.record_timing("summary", timer() - summary_start, "Create summary")
-
     return content
 
 
-# Classification switch toggled callback callback
-@app.callback(
-    [
-        Output("image-analysis", "figure", allow_duplicate=True),
-        Output("show-segmentation", "value", allow_duplicate=True),
-    ],
-    Input("show-classification", "value"),
-    [
-        State("image-hash-store", "data"),
-        State("show-segmentation", "value"),
-    ],
+# Cell clicked callback
+@callback(
+    Output(CELL_INFO_BODY_ID, "children", allow_duplicate=True),
+    Input(IMAGE_ANALYSIS_GRAPH_ID, "clickData"),
+    State(PROCESSED_HASH_STORE_ID, "data"),
     prevent_initial_call=True,
 )
-def classification_switch_toggled_callback(show_classification, hash, show_segmentation):
-    show_segmentation_update = dash.no_update
-    if not show_segmentation and show_classification:
-        # Auto-enable show segmentation when show classification is enabled
-        show_segmentation_update = True
-        show_segmentation = True
-
-    if hash is None:
-        # If there is no figure yet, just update the segmentation switch
-        return (dash.no_update, show_segmentation_update)
-
-    # Get image data
-    image_data = DATA_MANAGER.get_image_data(hash)
-    if image_data is None:
-        raise dash.exceptions.PreventUpdate
-
-    # Get processed data
-    processed_data = get_processed_data_or_process(hash, image_data)
-    if processed_data is None:
-        raise dash.exceptions.PreventUpdate
-
-    # Create figure
-    figure = create_processed_image_analysis_figure(image_data, processed_data, show_segmentation, show_classification)
-
-    return (figure, show_segmentation_update)
-
-
-# Show clicked cell callback
-@app.callback(
-    Output("cell-info", "children", allow_duplicate=True),
-    Input("image-analysis", "clickData"),
-    [
-        State("image-hash-store", "data"),
-    ],
-    prevent_initial_call=True,
-)
-def show_clicked_cell_callback(click_data, hash):
+def cell_clicked_callback(click_data, hash):
     if click_data is None or hash is None:
-        raise dash.exceptions.PreventUpdate
+        raise PreventUpdate
 
-    # Get image data
-    image_data_start = timer()
-    image_data = DATA_MANAGER.get_image_data(hash)
-    dash.callback_context.record_timing("get_image_data", timer() - image_data_start, "Get image data")
-    if image_data is None:
-        print("show_clicked_cell: no image data; skip")
-        raise dash.exceptions.PreventUpdate
+    # Get required data
+    image_data = DATA_MANAGER.get_image_data_or_raise(hash)
     encoded_image = image_data.encoded_image
-
-    # Get processed data
-    processed_data_start = timer()
-    processed_data = DATA_MANAGER.get_processed_data(hash)
-    dash.callback_context.record_timing("get_processed_data", timer() - processed_data_start, "Get processed data")
-    if processed_data is None:
-        print("show_clicked_cell: no processed data; skip")
-        raise dash.exceptions.PreventUpdate
+    processed_data = DATA_MANAGER.get_processed_data_or_raise(hash)
     cropped_encoded_images = processed_data.cropped_encoded_images
     cells = processed_data.cells
 
     # Find clicked cell
-    find_start = timer()
+    find_timer = Timer("find_cell", "Find cell")
 
     # Get click coordinates
     if "points" not in click_data or not click_data["points"] or len(click_data["points"]) == 0:
         print("show_clicked_cell: no points in click data; skip")
-        raise dash.exceptions.PreventUpdate
+        raise PreventUpdate
     point = click_data["points"][0]
 
     # Check customdata
@@ -760,7 +705,7 @@ def show_clicked_cell_callback(click_data, hash):
         # No customdata, use closest cell approach
         if "x" not in point or "y" not in point:
             print("show_clicked_cell: no x or y in point; skip")
-            raise dash.exceptions.PreventUpdate
+            raise PreventUpdate
 
         click_x = point["x"]
         click_y = point["y"]
@@ -801,7 +746,7 @@ def show_clicked_cell_callback(click_data, hash):
 
         # Find the cell in our data
         cell = cells[cell_id]
-    dash.callback_context.record_timing("find_cell", timer() - find_start, "Find cell")
+    find_timer.record()
 
     # If no cell was found, show a placeholder.
     if not cell:
@@ -810,7 +755,7 @@ def show_clicked_cell_callback(click_data, hash):
     # Get cropped image
     cropped_encoded_image = cropped_encoded_images[cell_id]
 
-    show_cropped_start = timer()
+    show_cropped_timer = Timer("show_cropped", "Show cropped image")
 
     # Get predicted and relative lactate concentration, along with the confidence of the prediction.
     (concentration, r_concentration, confidence) = cell.lactate_concentration(image_data.actual_lactate_concentration())
@@ -905,10 +850,10 @@ def show_clicked_cell_callback(click_data, hash):
             figure=cell_fig, config={"displayModeBar": False}, style={"width": "100%", "height": "375px"}
         )
 
-    dash.callback_context.record_timing("show_cropped", timer() - show_cropped_start, "Show cropped image")
+    show_cropped_timer.record()
 
     # Create cell details with predicted properties
-    details_start = timer()
+    details_timer = Timer("details", "Create details")
     cell_info: list[ComponentType] = [
         cell_image,
     ]
@@ -951,7 +896,7 @@ def show_clicked_cell_callback(click_data, hash):
             ],
         ),
     ])
-    dash.callback_context.record_timing("details", timer() - details_start, "Create details")
+    details_timer.record()
 
     set_props(
         "cell-lactate-concentration",
@@ -963,180 +908,157 @@ def show_clicked_cell_callback(click_data, hash):
 
 
 # Filter by concentration callback
-@app.callback(
-    Output("image-analysis", "figure", allow_duplicate=True),
+@callback(
+    Output(IMAGE_ANALYSIS_FILTER_STORE, "data", allow_duplicate=True),
     Input("cell-concentration-graph", "clickData"),
-    State("image-hash-store", "data"),
-    State("show-segmentation", "value"),
-    State("show-classification", "value"),
+    State(IMAGE_ANALYSIS_FILTER_STORE, "data"),
     prevent_initial_call=True,
 )
-def filter_by_concentration_callback(click_data, hash, show_segmentation, show_classification):
-    if click_data is None or hash is None:
-        raise dash.exceptions.PreventUpdate
+def filter_by_concentration_callback(click_data, filter_str: str | None):
+    # Get lactate concentration to filter by
+    concentration = None
+    if click_data is not None:
+        # Get click coordinates
+        if "points" not in click_data or not click_data["points"] or len(click_data["points"]) == 0:
+            print(f"filter_by_concentration_callback: skipping; no points in click data: {click_data}")
+            raise PreventUpdate
+        point = click_data["points"][0]
 
-    # Get click coordinates
-    if "points" not in click_data or not click_data["points"] or len(click_data["points"]) == 0:
-        print("filter_by_concentration_callback: no points in click data; skip")
-        raise dash.exceptions.PreventUpdate
-    point = click_data["points"][0]
+        # Get concentration to filter by
+        if "x" not in point:
+            print(f"filter_by_concentration_callback: skipping; no 'x' property in clicked point: {point}")
+            raise dash.exceptions.PreventUpdate
+        concentration = int(point["x"])
 
-    # Get concentration to filter by
-    if "x" not in point:
-        print("filter_by_concentration_callback: no 'x' property in clicked point; skip")
-        raise dash.exceptions.PreventUpdate
-    filter = int(point["x"])
+    # Get filter
+    filter = ImageAnalysisFilter() if filter_str is None else ImageAnalysisFilter.from_json(filter_str)
 
-    # Get required data
-    image_data = DATA_MANAGER.get_image_data_or_raise(hash)
-    processed_data = DATA_MANAGER.get_processed_data_or_raise(hash)
+    # If previous and new filter is the same, prevent update to prevent cyclic callbacks.
+    if filter.concentration == concentration:
+        raise PreventUpdate
 
-    # Update filters
-    set_props("filter-text", {"children": f"Filtering by concentration: {filter}"})
-    set_props("filter-reset-button", {"disabled": False})
-
-    # Reset clickData and selectedData
-    set_props_reset_click_data()
-    set_props_reset_selected_data()
-
-    # Recreate image with concentration filter
-    return create_processed_image_analysis_figure(
-        image_data, processed_data, show_segmentation, show_classification, filter_concentration=filter
-    )
+    # Update filter
+    print(f"Filter by lactate concentration: {concentration}")
+    filter.concentration = concentration
+    return filter.to_json()
 
 
 # Filter by lactate resistance callback
-@app.callback(
-    Output("image-analysis", "figure", allow_duplicate=True),
+@callback(
+    Output(IMAGE_ANALYSIS_FILTER_STORE, "data", allow_duplicate=True),
     Input("cell-lactate-resistance-graph", "clickData"),
-    State("image-hash-store", "data"),
-    State("show-segmentation", "value"),
-    State("show-classification", "value"),
+    State(IMAGE_ANALYSIS_FILTER_STORE, "data"),
     prevent_initial_call=True,
 )
-def filter_by_lactate_resistance_callback(click_data, hash, show_segmentation, show_classification):
-    if click_data is None or hash is None:
-        raise dash.exceptions.PreventUpdate
-
-    # Get click coordinates
-    if "points" not in click_data or not click_data["points"] or len(click_data["points"]) == 0:
-        print("filter_by_lactate_resistance_callback: no points in click data; skip")
-        raise dash.exceptions.PreventUpdate
-    point = click_data["points"][0]
-
+def filter_by_lactate_resistance_callback(click_data, filter_str: str | None):
     # Get lactate resistance to filter by
-    if "label" not in point:
-        print("filter_by_lactate_resistance_callback: no 'label' property in clicked point; skip")
-        raise dash.exceptions.PreventUpdate
-    filter = point["label"]
+    resistance = None
+    if click_data is not None:
+        # Get click coordinates
+        if "points" not in click_data or not click_data["points"] or len(click_data["points"]) == 0:
+            print(f"filter_by_lactate_resistance_callback: skipping; no points in click data: {click_data}")
+            raise PreventUpdate
+        point = click_data["points"][0]
 
-    # Get required data
-    image_data = DATA_MANAGER.get_image_data_or_raise(hash)
-    processed_data = DATA_MANAGER.get_processed_data_or_raise(hash)
+        # Get lactate resistance to filter by
+        if "label" not in point:
+            print(f"filter_by_lactate_resistance_callback: skipping; no 'label' property in clicked point: {point}")
+            raise PreventUpdate
+        resistance = point["label"]
 
-    # Update filters
-    set_props("filter-text", {"children": f"Filtering by lactate resistance: {filter}"})
-    set_props("filter-reset-button", {"disabled": False})
+    # Get filter
+    filter = ImageAnalysisFilter() if filter_str is None else ImageAnalysisFilter.from_json(filter_str)
 
-    # Reset clickData and selectedData
-    set_props_reset_click_data()
-    set_props_reset_selected_data()
+    # If previous and new filter is the same, prevent update to prevent cyclic callbacks.
+    if filter.resistance == resistance:
+        raise PreventUpdate
 
-    # Recreate image with concentration filter
-    return create_processed_image_analysis_figure(
-        image_data, processed_data, show_segmentation, show_classification, filter_resistance=filter
-    )
+    # Update filter
+    print(f"Filter by lactate resistance: {resistance}")
+    filter.resistance = resistance
+    return filter.to_json()
 
 
 # Filter by area callback
-@app.callback(
-    Output("image-analysis", "figure", allow_duplicate=True),
+@callback(
+    Output(IMAGE_ANALYSIS_FILTER_STORE, "data", allow_duplicate=True),
     Input("cell-area-graph", "selectedData"),
-    State("image-hash-store", "data"),
-    State("show-segmentation", "value"),
-    State("show-classification", "value"),
+    State(IMAGE_ANALYSIS_FILTER_STORE, "data"),
     prevent_initial_call=True,
 )
-def filter_by_area_callback(selected_data, hash, show_segmentation, show_classification):
-    if selected_data is None or hash is None:
-        raise dash.exceptions.PreventUpdate
+def filter_by_area_callback(selected_data, filter_str: str | None):
+    # Get area to filter by
+    area = None
+    if selected_data is not None:
+        # Get min and max area to filter by
+        if "range" not in selected_data or "x" not in selected_data["range"]:
+            print(f"filter_by_area_callback: skipping; no range['x'] in selected data: {selected_data}")
+            raise PreventUpdate
+        min_area, max_area = selected_data["range"]["x"]
+        min_area = max(min_area, 0.0)  # Clamp to positive.
+        area = (min_area, max_area)
 
-    # Get min and max area to filter by
-    if "range" not in selected_data or "x" not in selected_data["range"]:
-        print(f"filter_by_area_callback: skipping due to no range['x'] in selected data: {selected_data}")
-        raise dash.exceptions.PreventUpdate
-    min_area, max_area = selected_data["range"]["x"]
-    min_area = max(min_area, 0.0)  # Clamp to positive.
+    # Get filter
+    filter = ImageAnalysisFilter() if filter_str is None else ImageAnalysisFilter.from_json(filter_str)
 
-    # Get required data
-    image_data = DATA_MANAGER.get_image_data_or_raise(hash)
-    processed_data = DATA_MANAGER.get_processed_data_or_raise(hash)
+    # If previous and new filter is the same, prevent update to prevent cyclic callbacks.
+    if filter.area == area:
+        raise PreventUpdate
 
-    # Update filters
-    set_props("filter-text", {"children": f"Filtering by area: {min_area:.2f} - {max_area:.2f}"})
-    set_props("filter-reset-button", {"disabled": False})
+    # Update filter
+    print(f"Filter by area: {area}")
+    filter.area = area
+    return filter.to_json()
 
-    # Reset clickData
-    set_props_reset_click_data()
 
-    # Recreate image with filter
-    return create_processed_image_analysis_figure(
-        image_data, processed_data, show_segmentation, show_classification, filter_area=(min_area, max_area)
-    )
+# Update filter callback
+@callback(
+    Output(STATISTICS_FITER_ID, "children", allow_duplicate=True),
+    Output(STATISTICS_FITER_RESET_ID, "disabled", allow_duplicate=True),
+    Input(IMAGE_ANALYSIS_FILTER_STORE, "data"),
+    prevent_initial_call=True,
+)
+def update_filter_callback(filter_str: str | None):
+    filter = ImageAnalysisFilter() if filter_str is None else ImageAnalysisFilter.from_json(filter_str)
+
+    facets_text = ""
+    reset_disabled = True
+    if filter.is_filtering():
+        facets = filter.to_facet_strs()
+        facets_text = ", ".join(facets)
+        reset_disabled = False
+
+    # Set filter facets text and whether filter reset button is disabled
+    print(f"Update filter: facets text={facets_text}, reset disabled={reset_disabled}")
+    return facets_text, reset_disabled
 
 
 # Reset filter callback
-@app.callback(
-    Output("image-analysis", "figure", allow_duplicate=True),
-    Input("filter-reset-button", "n_clicks"),
-    State("image-hash-store", "data"),
-    State("show-segmentation", "value"),
-    State("show-classification", "value"),
+@callback(
+    Output(STATISTICS_FITER_ID, "children", allow_duplicate=True),
+    Output(STATISTICS_FITER_RESET_ID, "disabled", allow_duplicate=True),
+    Output(IMAGE_ANALYSIS_FILTER_STORE, "data", allow_duplicate=True),
+    Input(STATISTICS_FITER_RESET_ID, "n_clicks"),
     prevent_initial_call=True,
 )
-def reset_filter_callback(n_clicks, hash, show_segmentation, show_classification):
-    if n_clicks is None or hash is None:
-        raise dash.exceptions.PreventUpdate
+def reset_filter_callback(n_clicks: int | None):
+    if n_clicks is None or n_clicks == 0:
+        raise PreventUpdate
 
-    # Get required data
-    image_data = DATA_MANAGER.get_image_data(hash)
-    if image_data is None:
-        print("reset_filter_callback: no image data; skip")
-        raise dash.exceptions.PreventUpdate
-
-    processed_data = get_processed_data_or_process(hash, image_data)
-    if processed_data is None:
-        print("reset_filter_callback: no processed data; skip")
-        raise dash.exceptions.PreventUpdate
-
-    # Reset filters and clickData
-    set_props_reset_filter()
-    set_props_reset_click_data()
-
-    # Recreate image without filter
-    return create_processed_image_analysis_figure(image_data, processed_data, show_segmentation, show_classification)
-
-
-# Reset filter text and disable the reset filter button.
-def set_props_reset_filter():
-    set_props("filter-text", {"children": ""})
-    set_props("filter-reset-button", {"disabled": True})
-
-
-# Reset clickData. We need to do this to allow other graphs to be clicked again after filtering.
-def set_props_reset_click_data():
+    # Reset clickData
     set_props("cell-concentration-graph", {"clickData": None})
     set_props("cell-lactate-resistance-graph", {"clickData": None})
     set_props("cell-area-graph", {"clickData": None})
 
-
-# Reset selectedData
-def set_props_reset_selected_data():
+    # Reset selectedData
     set_props("cell-area-graph", {"selectedData": None})
+
+    # Reset filter facets text, disable reset button, set image analysis filter to `None`.
+    return "", True, None
 
 
 # Add callback for model status
-@app.callback(
+@callback(
     Output("model-status", "children"),
     Input("upload-image", "id"),  # Trigger on app load by using a static component ID
 )

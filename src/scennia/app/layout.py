@@ -2,7 +2,25 @@ import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
 from dash import dcc, html
 
-from scennia.app.image import update_image_analysis_figure_layout
+from scennia.app.figure import update_image_analysis_figure_layout
+
+IMAGE_ANALYSIS_GRAPH_ID = "image-analysis-graph"
+IMAGE_ANALYSIS_SEGMENTATION_ID = "image-analysis-segmentation"
+IMAGE_ANALYSIS_CLASSIFICATION_ID = "image-analysis-classification"
+
+STATISTICS_BODY_ID = "statistics-body"
+STATISTICS_CELL_COUNT_ID = "statistics-cell-count"
+STATISTICS_CELL_AREA_ID = "statistics-cell-area"
+STATISTICS_FITER_ID = "statistics-filter"
+STATISTICS_FITER_RESET_ID = "statistics-filter-reset"
+
+CELL_INFO_BODY_ID = "cell-info-body"
+
+HASH_STORE = "hash-store"
+PROCESSED_HASH_STORE_ID = "processed-hash-store"
+IMAGE_ANALYSIS_FILTER_STORE = "image-analysis-filter-store"
+SELECTED_CELL_STORE = "selected-cell-store"
+
 
 cell_info_placeholder = html.P(
     "Upload an image and then click on a cell to view details",
@@ -12,14 +30,16 @@ cell_info_processed_placeholder = html.P(
     "Click on a cell to view details",
     className="text-muted m-0",
 )
-summary_placeholder = html.P(
-    "Upload an image to view the summary",
+statistics_placeholder = html.P(
+    "Click or upload an image to view the statistics",
     className="text-muted m-0",
 )
 
 
 # App layout
 def create_layout(show_image_upload=True):
+    persistence_type = "session"
+
     title = [
         html.H1("SCENNIA: Prototype Image Analysis Platform", className="my-2 text-center"),
         html.P(
@@ -75,6 +95,9 @@ def create_layout(show_image_upload=True):
                                     "padding-left": "6px",
                                     "padding-right": "6px",
                                 },
+                                persistence=bool(persistence_type),
+                                persisted_props=["value"],
+                                persistence_type=persistence_type,
                                 options=[],
                             ),
                         ),
@@ -122,9 +145,12 @@ def create_layout(show_image_upload=True):
                         dbc.Col(
                             className="col-auto",
                             children=dbc.Switch(
-                                id="show-segmentation",
+                                id=IMAGE_ANALYSIS_SEGMENTATION_ID,
                                 label="Show Segmentation",
                                 value=True,
+                                persistence=bool(persistence_type),
+                                persisted_props=["value"],
+                                persistence_type=persistence_type,
                                 className="mb-0",
                                 label_class_name="mb-0",
                             ),
@@ -132,9 +158,12 @@ def create_layout(show_image_upload=True):
                         dbc.Col(
                             className="col-auto",
                             children=dbc.Switch(
-                                id="show-classification",
+                                id=IMAGE_ANALYSIS_CLASSIFICATION_ID,
                                 label="Show Classification",
                                 value=True,
+                                persistence=bool(persistence_type),
+                                persisted_props=["value"],
+                                persistence_type=persistence_type,
                                 className="mb-0",
                                 label_class_name="mb-0",
                             ),
@@ -154,8 +183,8 @@ def create_layout(show_image_upload=True):
                     className="mh-100",  # Align spinner by setting height to 100% even with no content
                     children=[
                         dcc.Graph(
-                            id="image-analysis",
-                            figure=update_image_analysis_figure_layout(go.Figure(), 0, 0),
+                            id=IMAGE_ANALYSIS_GRAPH_ID,
+                            figure=update_image_analysis_figure_layout(go.Figure(), 0, 0, False),
                             config={
                                 "displayModeBar": False,
                                 "staticPlot": False,
@@ -201,26 +230,25 @@ def create_layout(show_image_upload=True):
                         "visibility": "visible",
                         "filter": "blur(3px) opacity(25%)",
                     },
-                    children=[html.Div(id="cell-info", children=cell_info_placeholder)],
+                    children=[html.Div(id=CELL_INFO_BODY_ID, children=cell_info_placeholder)],
                 ),
             ]),
         ],
     )
-    summary_card = dbc.Card(
+    statistics_card = dbc.Card(
         children=[
             dbc.CardHeader(
                 children=dbc.Row(
                     children=[
-                        dbc.Col(className="col-auto", children="Summary"),
-                        dbc.Col(id="detected-cell-count", className="col-auto"),
-                        dbc.Col(id="median-cell-area", className="col-auto"),
-                        dbc.Col(id="mean-cell-area", className="col-auto me-auto"),
-                        dbc.Col(id="filter-text", className="col-auto"),
+                        dbc.Col(className="col-auto", children="Statistics"),
+                        dbc.Col(id=STATISTICS_CELL_COUNT_ID, className="col-auto"),
+                        dbc.Col(id=STATISTICS_CELL_AREA_ID, className="col-auto me-auto"),
+                        dbc.Col(id=STATISTICS_FITER_ID, className="col-auto"),
                         dbc.Col(
                             className="col-auto",
                             children=dbc.Button(
                                 "Reset Filter",
-                                id="filter-reset-button",
+                                id=STATISTICS_FITER_RESET_ID,
                                 color="link",
                                 disabled=True,
                                 style={
@@ -236,11 +264,11 @@ def create_layout(show_image_upload=True):
             ),
             dbc.CardBody(
                 dcc.Loading(
-                    id="loading-summary",
+                    id="loading-statistics",
                     type="circle",
                     show_initially=False,
                     className="mh-100",  # Align spinner by setting height to 100% even with no content
-                    children=[html.Div(id="summary", children=summary_placeholder)],
+                    children=[html.Div(id=STATISTICS_BODY_ID, children=statistics_placeholder)],
                 ),
                 style={
                     # Set minimum height to prevent page from jumping around.
@@ -259,7 +287,7 @@ def create_layout(show_image_upload=True):
     main_cols.extend([
         dbc.Col(width=8, children=[image_analysis_card]),
         dbc.Col(width=4, children=[cell_info_card]),
-        dbc.Col(width=12, children=[summary_card]),
+        dbc.Col(width=12, children=[statistics_card]),
     ])
 
     return dbc.Container(
@@ -285,6 +313,9 @@ def create_layout(show_image_upload=True):
                 ],
             ),
             # Hidden data stores
-            dcc.Store(id="image-hash-store"),
+            dcc.Store(id=HASH_STORE, storage_type=persistence_type),
+            dcc.Store(id=PROCESSED_HASH_STORE_ID, storage_type=persistence_type),
+            dcc.Store(id=IMAGE_ANALYSIS_FILTER_STORE, storage_type=persistence_type),
+            dcc.Store(id=SELECTED_CELL_STORE, storage_type=persistence_type),
         ],
     )
