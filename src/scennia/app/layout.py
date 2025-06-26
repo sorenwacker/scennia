@@ -5,6 +5,9 @@ from dash import dcc, html
 from scennia.app.figure import update_image_analysis_figure_layout
 
 # ID constants
+CLASSIFICATION_MODEL_STATUS_ID = "classification-model-status"
+SEGMENTATION_MODEL_STATUS_ID = "segmentation-model-status"
+
 PREPARED_IMAGES_COUNT_ID = "prepared-images-count"
 PREPARED_IMAGES_REFRESH_ID = "prepared-images-refresh"
 PREPARED_IMAGES_ID = "prepared-images"
@@ -301,7 +304,28 @@ def create_layout(show_image_upload=True):
         children=[
             # Row: Title
             dbc.Row(
-                className="row-cols-1 g-2", children=[dbc.Col(title, width=12), dbc.Col(id="model-status", width=12)]
+                className="row-cols-1 g-2",
+                children=[
+                    dbc.Col(title, width=12),
+                    dbc.Col(
+                        dbc.Alert(
+                            html.Span("Classification Model...", className="fw-medium"),
+                            id=CLASSIFICATION_MODEL_STATUS_ID,
+                            color="secondary",
+                            className="p-2 mb-2",
+                        ),
+                        width=8,
+                    ),
+                    dbc.Col(
+                        dbc.Alert(
+                            html.Span("Segmentation Model...", className="fw-medium"),
+                            id=SEGMENTATION_MODEL_STATUS_ID,
+                            color="secondary",
+                            className="p-2 mb-2",
+                        ),
+                        width=4,
+                    ),
+                ],
             ),
             # Row: Main content
             dbc.Row(

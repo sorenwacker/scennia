@@ -42,6 +42,7 @@ from scennia.app.image import (
 from scennia.app.layout import (
     CELL_INFO_BODY_ID,
     CELL_INFO_ID_ID,
+    CLASSIFICATION_MODEL_STATUS_ID,
     HASH_STORE,
     IMAGE_ANALYSIS_ACTUAL_LACTATE_CONCENTRATION_ID,
     IMAGE_ANALYSIS_CLASSIFICATION_ID,
@@ -53,6 +54,7 @@ from scennia.app.layout import (
     PREPARED_IMAGES_ID,
     PREPARED_IMAGES_REFRESH_ID,
     PROCESSED_HASH_STORE_ID,
+    SEGMENTATION_MODEL_STATUS_ID,
     SELECTED_CELL_STORE,
     STATISTICS_BODY_ID,
     STATISTICS_CELL_AREA_ID,
@@ -989,34 +991,43 @@ def reset_filter_callback(n_clicks: int | None) -> tuple[str, bool, None]:
     return "", True, None
 
 
-# Add callback for model status
 @callback(
-    Output("model-status", "children"),
+    Output(CLASSIFICATION_MODEL_STATUS_ID, "children"),
+    Output(CLASSIFICATION_MODEL_STATUS_ID, "color"),
     Input(UPLOAD_IMAGE_ID, "id"),  # Trigger on app load by using a static component ID
 )
-def show_model_status_callback(_):
+def show_classification_model_status_callback(_):
     color = "success"
     if MODEL_MANAGER.is_onnx_model_loaded() and MODEL_MANAGER.onnx_model_metadata is not None:
-        parts = [
-            html.Strong("Classification Model Loaded: "),
-            f"{MODEL_MANAGER.onnx_model_metadata.get('model_name', 'Unknown')}",
+        model_name = MODEL_MANAGER.onnx_model_metadata.get("model_name", "Unknown")
+        content = [
+            html.Span("Classification Model Loaded: ", className="fw-medium"),
+            html.Span(f"{model_name}", className="fw-semibold"),
         ]
     elif MODEL_MANAGER.has_onnx_model_path():
-        parts = [
-            html.Strong("Classification Model Not Yet Loaded. "),
-            "Classification model will be loaded when required.",
+        content = [
+            html.Span("Classification Model Not Yet Loaded. ", className="fw-medium"),
+            html.Span("Classification model will be loaded when required."),
         ]
         color = "secondary"
     else:
-        parts = [
-            html.Strong("No Classification Model Loaded"),
-            "Cell classification will use basic size-based predictions only.",
+        content = [
+            html.Span("No Classification Model Loaded", className="fw-medium"),
+            html.Span("Cell classification will use basic size-based predictions only."),
         ]
         color = "warning"
+    return content, color
 
-    parts.extend([
-        html.Br(),
-        html.Strong("Segmentation Model Loaded: "),
-        "cellpose_3.0",
-    ])
-    return dbc.Alert(parts, color=color, className="mb-2")
+
+# Add callback for model status
+@callback(
+    Output(SEGMENTATION_MODEL_STATUS_ID, "children"),
+    Output(SEGMENTATION_MODEL_STATUS_ID, "color"),
+    Input(UPLOAD_IMAGE_ID, "id"),  # Trigger on app load by using a static component ID
+)
+def show_model_status_callback(_):
+    content = [
+        html.Span("Segmentation Model Loaded: ", className="fw-medium"),
+        html.Span("cellpose_3.0", className="fw-semibold"),
+    ]
+    return content, "success"
