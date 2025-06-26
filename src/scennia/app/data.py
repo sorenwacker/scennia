@@ -5,14 +5,11 @@ from dataclasses import dataclass, field
 from os.path import exists, isfile, join
 
 import numpy as np
+from dash.exceptions import PreventUpdate
 from PIL import Image
 from PIL.ImageFile import ImageFile
 from pydantic import BaseModel, Field
 from pydantic_core import to_json
-
-# Constants
-PIXEL_LENGTH_TO_MICROMETER = 1.0 / 3.46
-PIXEL_AREA_TO_MICROMETER = 1.0 / 12.0
 
 
 # Get the stem of given file name
@@ -99,6 +96,11 @@ class CellPrediction(BaseModel):
     treatment_type: str
     concentration: int
     all_predictions: list[float]
+
+
+# Pixel to μm constants
+PIXEL_LENGTH_TO_MICROMETER = 1.0 / 3.46
+PIXEL_AREA_TO_MICROMETER = 1.0 / 12.0
 
 
 # Cell data
@@ -349,8 +351,14 @@ class DataManager:
                 print(f"Failed to load uncompressed image for hash '{hash}'; continuing without image loaded")
                 traceback.print_exc()
 
-    # Get uncompressed image by hash and extension
     def get_uncompressed_image(self, hash: str, extension: str) -> ImageFile | None:
+        """Get uncompressed image by `hash` and `extension`.
+        Args:
+            hash (str): Hash to get uncompressed image for.
+            extension (str): File extension of the uncompressed image.
+        Returns:
+            ImageFile | None: Uncompressed image if found, `None` otherwise.
+        """
         self.__try_load_uncompressed_image(hash, extension)
         return self.uncompressed_images.get(hash)
 
@@ -427,10 +435,41 @@ class DataManager:
                 print(f"Failed to load image data for hash '{hash}'; continuing without data loaded")
                 traceback.print_exc()
 
-    # Get image data by hash
+    # Image data
+
+    def has_image_data(self, hash: str) -> bool:
+        """Checks whether image data is available for `hash`.
+        Args:
+            hash (str): Hash to check image data for.
+        Returns:
+            bool: True if image data is available for `hash`, false otherwise.
+        """
+        self.__try_load_image_data(hash)
+        return hash in self.image_data
+
     def get_image_data(self, hash: str) -> ImageData | None:
+        """Get image data by `hash`, or return `None` when not found.
+        Args:
+            hash (str): Hash to get image data for.
+        Returns:
+            ImageData | None: Image data if found, `None` otherwise.
+        """
         self.__try_load_image_data(hash)
         return self.image_data.get(hash)
+
+    def get_image_data_or_raise(self, hash: str) -> ImageData:
+        """Get image data by `hash`, or raise `PreventUpdate` when not found.
+        Args:
+            hash (str): Hash to get image data for.
+        Raises:
+            PreventUpdate: When no image data is found for `hash`.
+        Returns:
+            ImageData: Image data
+        """
+        image_data = self.get_image_data(hash)
+        if image_data is None:
+            raise PreventUpdate
+        return image_data
 
     # Update image data by hash, and get the updated image data
     def update_image_data(self, hash: str, image_data: ImageData) -> ImageData:
@@ -466,10 +505,41 @@ class DataManager:
                 print(f"Failed to load processed data for hash '{hash}'; continuing without data loaded")
                 traceback.print_exc()
 
-    # Get processed data by hash
+    # Processed data
+
+    def has_processed_data(self, hash: str) -> bool:
+        """Checks whether processed data is available for `hash`.
+        Args:
+            hash (str): Hash to check processed data for.
+        Returns:
+            bool: `True` if processed data is available for `hash`, `False` otherwise.
+        """
+        self.__try_load_processed_data(hash)
+        return hash in self.processed_data
+
     def get_processed_data(self, hash: str) -> ProcessedData | None:
+        """Get processed data by `hash`, or return `None` when not found.
+        Args:
+            hash (str): Hash to get image data for.
+        Returns:
+            ProcessedData | None: Processed data if found, `None` otherwise.
+        """
         self.__try_load_processed_data(hash)
         return self.processed_data.get(hash)
+
+    def get_processed_data_or_raise(self, hash: str) -> ProcessedData:
+        """Get processed data by `hash`, or raise `PreventUpdate` when not found.
+        Args:
+            hash (str): Hash to get processed data for.
+        Raises:
+            PreventUpdate: When no processed data is found for `hash`.
+        Returns:
+            ProcessedData: Processed data
+        """
+        processed_data = self.get_processed_data(hash)
+        if processed_data is None:
+            raise PreventUpdate
+        return processed_data
 
     # Update processed data by hash
     def update_processed_data(self, hash: str, processed_data: ProcessedData) -> ProcessedData:
