@@ -746,9 +746,9 @@ def cell_clicked_callback(click_data, hash: str | None) -> int:
     State(PROCESSED_HASH_STORE_ID, "data"),
     prevent_initial_call=True,
 )
-def cell_info_update_callback(selected_cell: int | None, hash: str | None):
+def cell_info_update_callback(selected_cell: int | None, hash: str | None) -> tuple[Any, Any]:
     if selected_cell is None:
-        return "", "", cell_info_processed_placeholder
+        return "", cell_info_processed_placeholder
 
     if hash is None:
         raise PreventUpdate
@@ -763,7 +763,7 @@ def cell_info_update_callback(selected_cell: int | None, hash: str | None):
 
     # Check if cell exist
     if selected_cell not in cells:
-        return "", "", html.P(f"Cell '{selected_cell}' not found", className="text-muted")
+        return "", html.P(f"Cell '{selected_cell}' not found", className="text-muted")
     cell = cells[selected_cell]
 
     # Gather cell info
