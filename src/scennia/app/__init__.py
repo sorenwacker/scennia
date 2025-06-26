@@ -995,35 +995,28 @@ def reset_filter_callback(n_clicks: int | None) -> tuple[str, bool, None]:
     Input(UPLOAD_IMAGE_ID, "id"),  # Trigger on app load by using a static component ID
 )
 def show_model_status_callback(_):
+    color = "success"
     if MODEL_MANAGER.is_onnx_model_loaded() and MODEL_MANAGER.onnx_model_metadata is not None:
-        return dbc.Alert(
-            [
-                html.Strong("Classification Model Loaded: "),
-                f"{MODEL_MANAGER.onnx_model_metadata.get('model_name', 'Unknown')}",
-                html.Br(),
-                html.Strong("Segmentation Model Loaded: "),
-            ],
-            color="success",
-            className="mb-2",
-        )
-    if MODEL_MANAGER.has_onnx_model_path():
-        return dbc.Alert(
-            [
-                html.Strong("Classification Model Not Yet Loaded"),
-                html.Br(),
-                html.Small("Segmentation model: cellpose_3.0. Classification model will be loaded when required."),
-            ],
-            color="secondary",
-            className="mb-2",
-        )
-    return dbc.Alert(
-        [
+        parts = [
+            html.Strong("Classification Model Loaded: "),
+            f"{MODEL_MANAGER.onnx_model_metadata.get('model_name', 'Unknown')}",
+        ]
+    elif MODEL_MANAGER.has_onnx_model_path():
+        parts = [
+            html.Strong("Classification Model Not Yet Loaded. "),
+            "Classification model will be loaded when required.",
+        ]
+        color = "secondary"
+    else:
+        parts = [
             html.Strong("No Classification Model Loaded"),
-            html.Br(),
-            html.Small(
-                "Segmentation model: cellpose_3.0. Cell classification will use basic size-based predictions only."
-            ),
-        ],
-        color="warning",
-        className="mb-2",
-    )
+            "Cell classification will use basic size-based predictions only.",
+        ]
+        color = "warning"
+
+    parts.extend([
+        html.Br(),
+        html.Strong("Segmentation Model Loaded: "),
+        "cellpose_3.0",
+    ])
+    return dbc.Alert(parts, color=color, className="mb-2")

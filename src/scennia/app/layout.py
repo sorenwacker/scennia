@@ -300,19 +300,13 @@ def create_layout(show_image_upload=True):
         },
         children=[
             # Row: Title
-            dbc.Row(className="row-cols-1 g-2", children=[dbc.Col(title)]),
+            dbc.Row(
+                className="row-cols-1 g-2", children=[dbc.Col(title, width=12), dbc.Col(id="model-status", width=12)]
+            ),
             # Row: Main content
             dbc.Row(
                 className="row-cols-2 g-2 mb-2",
                 children=main_cols,
-            ),
-            # Row: Footer
-            dbc.Row(
-                className="row-cols-1 g-2",
-                children=[
-                    dbc.Col(id="model-status", width=12),
-                    dbc.Col(id="status-alert", width=12),
-                ],
             ),
             # Hidden data stores
             dcc.Store(id=HASH_STORE, storage_type=persistence_type),
