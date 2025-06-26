@@ -159,16 +159,16 @@ def create_image_analysis_figure(
         # Create hover text with predicted properties
         hover_lines = [f"<b>Cell {id}</b>"]
         if concentration is not None:
-            hover_lines.append(f"Lactate concentration: {concentration}mM")
+            hover_lines.append(f"Predicted Lactate Concentration: {concentration} mM")
         if r_concentration is not None:
-            hover_lines.append(f"Relative lactate concentration: {r_concentration}mM")
+            hover_lines.append(f"Predicted Relative to Actual Concentration: {r_concentration} mM")
         if confidence is not None:
             hover_lines.append(f"Confidence: {confidence_into_english(confidence)}")
         if r_concentration is not None:
             resistance = relative_lactate_concentration_into_resistance(r_concentration)
             if filter.should_filter_by_resistance(resistance):
                 continue  # Skip if filtered by resistance
-            hover_lines.append(f"<b>Conclusion:<br>  {resistance}</b>")
+            hover_lines.append(f"<b>Conclusion: {resistance}</b>")
         hover_lines.append("<br>Click for more info")
         hover_text = "<br>".join(hover_lines)
 

@@ -32,7 +32,6 @@ from scennia.app.figure import (
     create_image_analysis_figure,
     create_placeholder_image_analysis_figure,
     lactate_concentration_color,
-    lactate_resistance_color,
 )
 from scennia.app.image import (
     calculate_image_hash,
@@ -43,7 +42,6 @@ from scennia.app.image import (
 from scennia.app.layout import (
     CELL_INFO_BODY_ID,
     CELL_INFO_ID_ID,
-    CELL_INFO_LACTATE_CONCENTRATION_ID,
     HASH_STORE,
     IMAGE_ANALYSIS_ACTUAL_LACTATE_CONCENTRATION_ID,
     IMAGE_ANALYSIS_CLASSIFICATION_ID,
@@ -376,7 +374,7 @@ def image_hash_change_callback(hash: str | None) -> str:
     # Update headers
     if image_data.meta_data is not None:
         actual_lactate_concentration = (
-            f"Actual lactate concentration: {image_data.meta_data.actual_lactate_concentration}mM"
+            f"Actual Lactate Concentration: {image_data.meta_data.actual_lactate_concentration} mM"
             if image_data.meta_data.actual_lactate_concentration is not None
             else ""
         )
@@ -543,8 +541,8 @@ def statistics_update_callback(hash: str | None):
 
     # Update headers
     set_props(STATISTICS_CELL_COUNT_ID, {"children": f"{len(processed_data.cells)} cells"})
-    median = f"median: {processed_data.median_area_um:.2f}μm²"
-    mean = f"mean: {processed_data.mean_area_um:.2f}μm²"
+    median = f"median: {processed_data.median_area_um:.2f} μm²"
+    mean = f"mean: {processed_data.mean_area_um:.2f} μm²"
     set_props(STATISTICS_CELL_AREA_ID, {"children": f"Cell area: {median}, {mean}"})
 
     return body
@@ -605,8 +603,8 @@ def create_statistics(image_data: ImageData, processed_data: ProcessedData) -> l
                 df,
                 x="Concentration",
                 y="Count",
-                title="Cells by Lactate Concentration",
-                labels={"Concentration": "Lactate Concentration [mM]", "Count": "Number of Cells"},
+                title="Predicted Lactate Concentration per Cell",
+                labels={"Concentration": "Predicted Lactate Concentration [mM]", "Count": "Number of Cells"},
                 text="Count",
                 text_auto=True,
                 color="Color",
@@ -618,47 +616,49 @@ def create_statistics(image_data: ImageData, processed_data: ProcessedData) -> l
             fig.update_xaxes(fixedrange=True)
             fig.update_yaxes(fixedrange=True)
             # Show more info on hover
-            fig.update_traces(hovertemplate="<b>%{x}mM</b><br>Count: %{y}<extra></extra>")
+            fig.update_traces(
+                hovertemplate="Predicted Lactate Concentration: <b>%{x} mM</b><br>Number of Cells: %{y}<extra></extra>"
+            )
             # Add graph
             graph = dcc.Graph(id="cell-concentration-graph", figure=fig, config=graph_config, style=graph_style)
-            graphs.append(dbc.Col(graph, width=8))
+            graphs.append(dbc.Col(graph, width=12))
 
-        # Create lactate resistance pie chart
-        if lactate_resistance_counts:
-            plot_data = []
-            for lactate_resistance, count in sorted(lactate_resistance_counts.items()):
-                color = lactate_resistance_color(lactate_resistance)
-                color_label = px.colors.label_rgb(color)
-                plot_data.append({
-                    "Lactate Resistance": lactate_resistance,
-                    "Count": count,
-                    "Color": color_label,
-                })
-            df = pd.DataFrame(plot_data)
+        # # Create lactate resistance pie chart
+        # if lactate_resistance_counts:
+        #     plot_data = []
+        #     for lactate_resistance, count in sorted(lactate_resistance_counts.items()):
+        #         color = lactate_resistance_color(lactate_resistance)
+        #         color_label = px.colors.label_rgb(color)
+        #         plot_data.append({
+        #             "Lactate Resistance": lactate_resistance,
+        #             "Count": count,
+        #             "Color": color_label,
+        #         })
+        #     df = pd.DataFrame(plot_data)
 
-            # Create lactate resistance pie chart
-            fig = px.pie(
-                df,
-                names="Lactate Resistance",
-                values="Count",
-                title="Cells by Lactate Resistance",
-                labels={"Lactate Resistance": "Lactate Resistance", "Count": "Number of Cells"},
-                color="Color",
-                color_discrete_map={row["Color"]: row["Color"] for _, row in df.iterrows()},
-            )
-            # Update layout
-            fig.update_layout(margin=graph_margin, font=graph_font, showlegend=False)
-            # Disable zoom
-            fig.update_xaxes(fixedrange=True)
-            fig.update_yaxes(fixedrange=True)
-            # Show counts and show more info on hover
-            fig.update_traces(
-                textinfo="value+percent",
-                hovertemplate="<b>%{label}</b><br>Count: %{value} (%{percent})<extra></extra>",
-            )
-            # Add graph
-            graph = dcc.Graph(id="cell-lactate-resistance-graph", figure=fig, config=graph_config, style=graph_style)
-            graphs.append(dbc.Col(graph, width=4))
+        #     # Create lactate resistance pie chart
+        #     fig = px.pie(
+        #         df,
+        #         names="Lactate Resistance",
+        #         values="Count",
+        #         title="Cells by Lactate Resistance",
+        #         labels={"Lactate Resistance": "Lactate Resistance", "Count": "Number of Cells"},
+        #         color="Color",
+        #         color_discrete_map={row["Color"]: row["Color"] for _, row in df.iterrows()},
+        #     )
+        #     # Update layout
+        #     fig.update_layout(margin=graph_margin, font=graph_font, showlegend=False)
+        #     # Disable zoom
+        #     fig.update_xaxes(fixedrange=True)
+        #     fig.update_yaxes(fixedrange=True)
+        #     # Show counts and show more info on hover
+        #     fig.update_traces(
+        #         textinfo="value+percent",
+        #         hovertemplate="<b>%{label}</b><br>Count: %{value} (%{percent})<extra></extra>",
+        #     )
+        #     # Add graph
+        #     graph = dcc.Graph(id="cell-lactate-resistance-graph", figure=fig, config=graph_config, style=graph_style)
+        #     graphs.append(dbc.Col(graph, width=4))
     else:
         large_cells = sum(cell.is_large for cell in processed_data.cells.values())
         small_cells = len(processed_data.cells) - large_cells
@@ -741,7 +741,6 @@ def cell_clicked_callback(click_data, hash: str | None) -> int:
 # Cell info update callback
 @callback(
     Output(CELL_INFO_ID_ID, "children"),
-    Output(CELL_INFO_LACTATE_CONCENTRATION_ID, "children"),
     Output(CELL_INFO_BODY_ID, "children"),
     Input(SELECTED_CELL_STORE, "data"),
     State(PROCESSED_HASH_STORE_ID, "data"),
@@ -799,9 +798,9 @@ def cell_info_update_callback(selected_cell: int | None, hash: str | None):
     if cell.predicted_properties is not None:
         facts = []
         if concentration is not None:
-            facts.append(html.Li(f"Lactate concentration: {concentration}mM"))
+            facts.append(html.Li(f"Lactate Concentration: {concentration} mM"))
         if r_concentration is not None:
-            facts.append(html.Li(f"Relative lactate concentration: {r_concentration}mM"))
+            facts.append(html.Li(f"Relative to Actual Lactate Concentration: {r_concentration} mM"))
         if confidence is not None:
             facts.append(html.Li(f"Confidence: {confidence_into_english(confidence)}"))
         if r_concentration is not None:
@@ -815,7 +814,7 @@ def cell_info_update_callback(selected_cell: int | None, hash: str | None):
             html.Div(
                 className="p-2 my-3 border rounded border-primary-subtle bg-secondary-subtle",
                 children=[
-                    html.H6("Cell Classification"),
+                    html.H6("Predicted Cell Classification"),
                     html.Ul(className="my-0", children=facts),
                 ],
             )
@@ -827,8 +826,8 @@ def cell_info_update_callback(selected_cell: int | None, hash: str | None):
         html.Ul(
             className="my-0",
             children=[
-                html.Li(f"Area: {cell.area_um:.2f}μm²"),
-                html.Li(f"Perimeter: {cell.perimeter_um:.2f}μm"),
+                html.Li(f"Area: {cell.area_um:.2f} μm²"),
+                html.Li(f"Perimeter: {cell.perimeter_um:.2f} μm"),
                 html.Li(f"Eccentricity: {cell.eccentricity:.3f}"),
             ],
         ),
@@ -836,8 +835,7 @@ def cell_info_update_callback(selected_cell: int | None, hash: str | None):
 
     timer.record()
 
-    concentration_str = f"Lactate concentration: {concentration}mM" if concentration is not None else ""
-    return concentration_str, f"#{selected_cell}", content
+    return f"#{selected_cell}", content
 
 
 # Filter by concentration callback
@@ -1003,7 +1001,7 @@ def show_model_status_callback(_):
                 html.Strong("Classification Model Loaded: "),
                 f"{MODEL_MANAGER.onnx_model_metadata.get('model_name', 'Unknown')}",
                 html.Br(),
-                html.Small("Segmentation model: cellpose_3.0."),
+                html.Strong("Segmentation Model Loaded: "),
             ],
             color="success",
             className="mb-2",

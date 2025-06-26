@@ -24,7 +24,6 @@ STATISTICS_FITER_ID = "statistics-filter"
 STATISTICS_FITER_RESET_ID = "statistics-filter-reset"
 STATISTICS_BODY_ID = "statistics-body"
 
-CELL_INFO_LACTATE_CONCENTRATION_ID = "cell-info-lactate-concentration"
 CELL_INFO_ID_ID = "cell-info-id"
 CELL_INFO_BODY_ID = "cell-info-body"
 
@@ -226,8 +225,7 @@ def create_layout(show_image_upload=True):
             dbc.CardHeader(
                 children=dbc.Row(
                     children=[
-                        dbc.Col("Cell Info", className="col-auto fw-bold"),
-                        dbc.Col(id=CELL_INFO_LACTATE_CONCENTRATION_ID, className="col-auto me-auto"),
+                        dbc.Col("Cell Info", className="col-auto me-auto fw-bold"),
                         dbc.Col(id=CELL_INFO_ID_ID, className="col-auto"),
                     ],
                 ),
