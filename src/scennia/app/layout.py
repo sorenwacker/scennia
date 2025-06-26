@@ -67,7 +67,7 @@ def create_layout(show_image_upload=True):
             dbc.CardHeader(
                 children=dbc.Row(
                     children=[
-                        dbc.Col("Images", className="col-auto"),
+                        dbc.Col("Images", className="col-auto fw-bold"),
                         dbc.Col(id=PREPARED_IMAGES_COUNT_ID, className="col-auto me-auto"),
                         dbc.Col(
                             className="col-auto",
@@ -124,7 +124,7 @@ def create_layout(show_image_upload=True):
         children=[
             dbc.CardHeader(
                 children=dbc.Row([
-                    dbc.Col("Image Upload", className="col-auto me-auto"),
+                    dbc.Col("Image Upload", className="col-auto me-auto fw-bold"),
                     dbc.Col(id=UPLOAD_IMAGE_FILE_NAME_ID, className="col-auto"),
                 ])
             ),
@@ -153,7 +153,7 @@ def create_layout(show_image_upload=True):
             dbc.CardHeader(
                 children=dbc.Row(
                     children=[
-                        dbc.Col(className="col-auto", children="Image Analysis"),
+                        dbc.Col("Image Analysis", className="col-auto fw-bold"),
                         dbc.Col(id=IMAGE_ANALYSIS_ACTUAL_LACTATE_CONCENTRATION_ID, className="col-auto me-auto"),
                         dbc.Col(
                             className="col-auto",
@@ -226,7 +226,7 @@ def create_layout(show_image_upload=True):
             dbc.CardHeader(
                 children=dbc.Row(
                     children=[
-                        dbc.Col(className="col-auto", children="Cell Info"),
+                        dbc.Col("Cell Info", className="col-auto fw-bold"),
                         dbc.Col(id=CELL_INFO_LACTATE_CONCENTRATION_ID, className="col-auto me-auto"),
                         dbc.Col(id=CELL_INFO_ID_ID, className="col-auto"),
                     ],
@@ -240,7 +240,7 @@ def create_layout(show_image_upload=True):
             dbc.CardHeader(
                 children=dbc.Row(
                     children=[
-                        dbc.Col(className="col-auto", children="Statistics"),
+                        dbc.Col("Statistics", className="col-auto fw-bold"),
                         dbc.Col(id=STATISTICS_CELL_COUNT_ID, className="col-auto"),
                         dbc.Col(id=STATISTICS_CELL_AREA_ID, className="col-auto me-auto"),
                         dbc.Col(id=STATISTICS_FITER_ID, className="col-auto"),
@@ -319,7 +319,8 @@ def create_layout(show_image_upload=True):
             # Hidden data stores
             dcc.Store(id=HASH_STORE, storage_type=persistence_type),
             dcc.Store(id=PROCESSED_HASH_STORE_ID, storage_type=persistence_type),
-            dcc.Store(id=IMAGE_ANALYSIS_FILTER_STORE, storage_type=persistence_type),
+            # Not persisting filter in session because the filter is partially cleared at load due to how Dash works.
+            dcc.Store(id=IMAGE_ANALYSIS_FILTER_STORE),
             dcc.Store(id=SELECTED_CELL_STORE, storage_type=persistence_type),
         ],
     )
